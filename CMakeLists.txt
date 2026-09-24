@@ -7,7 +7,7 @@ if(MSVC)
   target_compile_options(RearSilverAvatarCapturePrototype PRIVATE /utf-8 /EHsc)
 endif()
 target_compile_definitions(RearSilverAvatarCapturePrototype PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(RearSilverAvatarCapturePrototype PRIVATE d3d11 dxgi d3dcompiler windowscodecs ole32 comdlg32 gdi32 user32 version)
+target_link_libraries(RearSilverAvatarCapturePrototype PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 comdlg32 gdi32 user32 version)
 
 # Preserve Diagnostic 18 as the known-good control while the production renderer is integrated.
 add_executable(RearSilverAvatarDiagnostic18 WIN32 EXCLUDE_FROM_ALL src/sdl_diagnostic.cpp)
@@ -29,3 +29,14 @@ if(MSVC)
 endif()
 target_compile_definitions(RearSilverAvatarArchitectureDiagnostic PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(RearSilverAvatarArchitectureDiagnostic PRIVATE d3d11 dxgi comdlg32 gdi32 user32)
+
+# Diagnostic 19: fixed composition swap chain presented through DirectComposition.
+# This target tests OBS Game Capture acquisition only and is not part of production.
+add_executable(RearSilverAvatarDirectCompositionDiagnostic WIN32 EXCLUDE_FROM_ALL src/directcomposition_diagnostic.cpp)
+set_target_properties(RearSilverAvatarDirectCompositionDiagnostic PROPERTIES OUTPUT_NAME "RearSilverAvatar-Diagnostic19-DirectComposition")
+target_compile_features(RearSilverAvatarDirectCompositionDiagnostic PRIVATE cxx_std_17)
+if(MSVC)
+  target_compile_options(RearSilverAvatarDirectCompositionDiagnostic PRIVATE /utf-8 /EHsc)
+endif()
+target_compile_definitions(RearSilverAvatarDirectCompositionDiagnostic PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(RearSilverAvatarDirectCompositionDiagnostic PRIVATE d3d11 dxgi dcomp ole32 user32)

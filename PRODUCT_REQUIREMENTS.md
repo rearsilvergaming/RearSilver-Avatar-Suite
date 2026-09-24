@@ -1,26 +1,55 @@
 # RearSilver Avatar reconstruction requirements
 
-This document is the authoritative specification for the first reconstructed application baseline. The initial baseline is intentionally limited to the renderer, responsive overlay, image loading, basic motion, background modes, and OBS compatibility described below.
+This document is the authoritative product and reconstruction specification. The first reconstructed renderer is intentionally limited to the responsive overlay, image loading, basic motion, background modes, and OBS compatibility described below, but validating that renderer does not waive the stable-output requirement.
+
+## Stable OBS output is the product goal
+
+- The OBS-facing composition has a stable configured width and height independent of the RearSilver Avatar application window.
+- A user may freely position, scale, crop, align, and optionally lock the RearSilver Avatar source in OBS. RearSilver must continue supplying the same intrinsic canvas underneath that OBS-owned transform.
+- Resizing, maximising, restoring, snapping, minimising, or repositioning the application window must not change the OBS source's native dimensions, effective scene scale, position, crop, alignment, or bounding geometry.
+- Locking a source in OBS does not protect its scene geometry when the source's native dimensions change. Therefore a dynamically client-sized source does not satisfy this requirement merely because the OBS item is locked.
+- A maximised application client area is not necessarily the monitor's full resolution. Window chrome and the taskbar can produce dimensions such as 1920×1009 on a 1920×1080 display; this must not become the stream source resolution.
+- The application window remains a freely resizable local preview and control surface. Its dimensions must not be authoritative for the stream composition.
+- Veadotube's window-following source behaviour is a compatibility reference only and is not RearSilver Avatar's target user experience.
+- Direct Game Capture of a client-sized application swap chain remains a worst-case fallback only. Adopting it as product behaviour requires an explicit product decision; it must not silently replace the stable-output requirement.
 
 ## Application and rendering architecture
 
-- Use one resizable, user-facing top-level window and one D3D11 swap chain attached directly to that window.
-- Resize the swap chain to follow each valid, non-zero client size. Under this accepted fallback architecture, OBS Game Capture source dimensions may change when the application is resized, maximised, restored, or snapped.
+- Use one resizable, user-facing top-level window for the application preview and controls.
+- Game Capture uses one fixed-size D3D11 composition swap chain created with `CreateSwapChainForComposition`. The current validated baseline is 1920×1080; treat this as the configured output resolution rather than a permanent restriction on future output settings.
+- Attach that swap chain through one DirectComposition target and visual to the one top-level application window. DirectComposition applies only the local aspect-fit scale and centring transform; it must not alter the fixed OBS-facing render canvas.
+- A newly created OBS Game Capture source has been verified to start with 1920×1080 intrinsic dimensions. An existing OBS source retains its user-defined scene transform when the application window changes size or state.
+- Preserve the working renderer and responsive UI on the fixed composition canvas.
 - Preserve the avatar's intended proportions and keep the composition centred without stretching, distortion, or unintended cropping.
 - The avatar and background form the base composition layer.
-- The custom, branded sidebar and menu form a rendered D3D overlay above the base composition. They do not reserve layout space.
-- Opening or closing the sidebar must not push, shrink, rescale, crop, or reposition the avatar composition.
+- The custom, branded interface forms a rendered D3D overlay above the base composition. It does not reserve layout space.
+- Opening or closing any menu, settings page, wizard step, dropdown, or other overlay must not push, shrink, rescale, crop, or reposition the avatar composition.
 - Do not replace the rendered interface with generic native Win32-looking controls merely to obtain automatic coordinate handling.
-- Do not introduce a fixed capture child, GDI preview, child capture HWND, second output window, or second swap chain into the production baseline.
+- Do not reintroduce the rejected fixed capture child, GDI preview, child capture HWND, or second user-facing output window. Any new OBS output transport or GPU-sharing mechanism requires a contained design and validation step before production integration.
 
-Avatar and UI layout must remain independent in the implementation:
+Avatar and UI layout must remain independent in the implementation. Both are evaluated in configured output-canvas coordinates, while DirectComposition separately maps that canvas into the local client area:
 
 ```text
-avatarTransform = calculateAvatarTransform(clientWidth, clientHeight, logicalCanvas)
-uiLayout = calculateUiLayout(clientWidth, clientHeight, dpiScale, sidebarOpen)
+avatarTransform = calculateAvatarTransform(outputWidth, outputHeight, logicalCanvas)
+uiLayout = calculateUiLayout(outputWidth, outputHeight, outputScale, overlayState)
+localPreviewTransform = calculateAspectFit(clientWidth, clientHeight, outputWidth, outputHeight)
 ```
 
-`sidebarOpen`, `sidebarWidth`, and other overlay geometry must never be inputs to the avatar transform. In particular, do not calculate the avatar transform from `clientWidth - sidebarWidth`.
+Overlay state, panel dimensions, and other interface geometry must never be inputs to the avatar transform. In particular, do not calculate the avatar transform from the client area minus interface dimensions.
+
+## Authoritative UI direction
+
+- RearSilver Avatar is a standalone companion product in the RearSilver Stream Suite family. Use the same core navigation and control language so users encounter familiar tabs, panels, buttons, typography, spacing, states, terminology, and cyan-accented dark visual treatment across both products.
+- The Stream Suite settings pages and guided setup are the direct visual and behavioural references. Avatar-specific previews, meters, thumbnails, and icons may provide product identity without creating a separate interface language.
+- Retire the floating collapsible sidebar as the target product interface. It remains temporary prototype code until its replacement is separately authorised and implemented.
+- The normal focused view uses a compact preset selector and a Settings entry point over the avatar composition.
+- Settings opens a large custom-rendered panel with Stream Suite-style horizontal tab navigation, clear page headings, short explanatory copy, and grouped cards or control sections.
+- First run uses a guided setup based directly on the Stream Suite pattern: visible progress, a page title and explanation, grouped settings, automatic progress saving, and Back, Skip for now, and Continue actions.
+- Guided setup and normal Settings reuse the same controls, layout components, validation, and stored settings. Do not implement separate copies of the same configuration workflow.
+- The initial candidate setup areas are Output, Avatar Images, Microphone, Voice Detection, Blink and Motion, and Review and Finish. Their exact names, grouping, order, and page count remain provisional until real control density and workflow testing justify the final structure.
+- The preset selector, Settings entry point, settings panel, guided setup, and all subordinate controls remain overlay content. They must never alter the avatar transform or configured OBS canvas.
+- All visible overlay UI hides together when RearSilver Avatar loses foreground application status.
+- Do not introduce a separate settings HWND, second user-facing window, native Win32 settings dialog, or generic native control styling for this interface.
 
 ## Overlay visibility and focus
 
@@ -32,26 +61,29 @@ uiLayout = calculateUiLayout(clientWidth, clientHeight, dpiScale, sidebarOpen)
 
 ## Responsive controls and input
 
-- Calculate one responsive `UiLayout` from the current client dimensions and DPI scale.
+- Calculate one responsive `UiLayout` in the configured output-canvas coordinate space.
 - Use the exact bounds from that `UiLayout` for rendering, hover state, pressed state, and pointer hit testing.
+- Inverse-map local pointer coordinates through the exact DirectComposition aspect-fit scale and offset before testing those shared bounds. Ignore clicks in local letterbox or pillarbox margins.
 - Do not maintain separate drawing and input rectangles.
 - Do not use stale hard-coded hit rectangles based on the launch resolution.
 - Controls must remain correctly positioned and clickable after resizing, maximising, restoring, snapping, or changing DPI. A visible control must never invoke a neighbouring action.
-- The behavioural reference is the Stream Suite sidebar: the buttons are the buttons regardless of window size.
+- The behavioural reference is Stream Suite: controls retain their identity, state, and correct hit area regardless of window size.
 
-## Resize ownership and minimisation
+## Local presentation, resize ownership, and minimisation
 
-- The UI thread publishes client-size changes; the render thread owns the D3D device context, swap-chain resizing, GPU resources, and presentation.
-- Coalesce pending resize requests so the render thread applies the latest available dimensions.
-- A minimised or zero-sized client state must not call `ResizeBuffers` with a width or height of zero.
-- Defer resizing while either dimension is zero and apply the latest valid, non-zero size after restoration.
+- The UI thread publishes client-size changes; the render thread owns the D3D device context, DirectComposition transform, GPU resources, and presentation.
+- Coalesce pending client-size changes so the render thread applies the latest available local preview transform.
+- Do not call `ResizeBuffers` in response to application-window resizing, snapping, maximising, restoring, DPI changes, or minimisation. The composition swap chain remains at the configured output resolution.
+- Ignore zero-sized client dimensions while minimised and apply the latest valid, non-zero DirectComposition transform after restoration.
+- Continue rendering and calling `Present` while the application is obscured or minimised so OBS frame delivery and animation do not pause or throttle.
 
-## OBS Game Capture and adapter selection
+## OBS output, Game Capture, and adapter selection
 
 - Diagnostic 18 is authoritative for adapter enumeration, legacy shared-resource interoperability scoring, D3D11 device creation, and the validated swap-chain creation lifecycle.
 - Prefer the ordinary Windows default adapter on ties. Select another related hardware-adapter alias only when it has strictly broader interoperability.
 - Never hard-code an adapter index, GPU name, or LUID. LUID values may change between Windows sessions.
-- Normal OBS Game Capture must work with SLI/Crossfire Capture Mode disabled.
+- The validated DirectComposition Game Capture path works with SLI/Crossfire Capture Mode disabled and satisfies the stable-geometry requirement on the tested system.
+- Diagnostic 19 is authoritative for the fixed composition swap-chain creation, DirectComposition visual attachment, aspect-fit local transform, inverse pointer mapping, minimised presentation, and premultiplied-alpha behavior.
 - Keep RivaTuner Statistics Server compatibility separate from renderer selection. If RTSS or similar graphics-hook software is detected, show this notice:
 
   > RivaTuner Statistics Server is running. If OBS Game Capture is blank or frozen, open RTSS Setup and enable “Use Microsoft Detours API hooking”.
@@ -66,20 +98,36 @@ uiLayout = calculateUiLayout(clientWidth, clientHeight, dpiScale, sidebarOpen)
 - Loading, cancelling, or failing to load a replacement image must not reset the animation phase or produce a frozen interval in OBS.
 - Cancelling or rejecting a file must leave the current image unchanged.
 
-## First reconstructed baseline acceptance checks
+## Renderer-baseline acceptance checks
 
-The first baseline must demonstrate all of the following together:
+The first renderer baseline must demonstrate all of the following together:
 
 - PNG loading and successful atomic replacement.
 - Basic avatar motion.
 - Supported background modes.
 - Normal OBS Game Capture using the Diagnostic 18 adapter-selection behaviour.
-- Proportional rendering at launch size and after resizing, maximising, restoring, and snapping.
+- Proportional local presentation at launch size and after resizing, maximising, restoring, and snapping, without changing the output canvas.
 - An overlay UI that never changes avatar geometry.
 - Complete focus-driven hiding and restoration of the overlay.
 - Correct control hit testing at launch size and at resized, maximised, restored, and snapped sizes.
 - Continuous rendering and animation while the file picker is open, including successful selection and cancellation.
-- Safe minimisation and restoration without an invalid zero-sized swap-chain resize.
+- Safe minimisation and restoration without resizing the fixed swap chain or interrupting presentation.
+
+The first renderer baseline validated these application-side behaviours. Diagnostic 19 then validated the fixed-output presentation architecture that is now the active production integration target.
+
+## Stable-output acceptance checks
+
+Before an output architecture can be considered production-ready, it must demonstrate all of the following together:
+
+- OBS receives the configured composition width and height at launch.
+- Resizing, maximising, restoring, snapping, minimising, and repositioning the application do not change those OBS source dimensions.
+- A source positioned, scaled, cropped, aligned, and locked in OBS does not move or change effective scene geometry during any application-window transition.
+- Avatar animation and output frame pacing continue while the application is obscured, minimised, or displaying an owned file picker.
+- Alpha and all supported background modes remain correct.
+- The working renderer, responsive overlay, input mapping, PNG replacement, motion, adapter selection, and RTSS handling remain intact.
+- The implementation does not expose a second user-facing output window or require users to manage a hidden capture window.
+
+Diagnostic 19 passed these checks on the target system with a fixed 1920×1080 composition swap chain: OBS acquisition, newly-created source dimensions, free resize and snap, maximise and restore, stable OBS scene geometry, aspect-fit local presentation, inverse pointer mapping, full-rate minimised animation, premultiplied alpha, and transparent/opaque backgrounds.
 
 Profiles, microphone-driven states, blinking, and effects are outside the first reconstructed baseline unless separately approved.
 
@@ -87,5 +135,5 @@ Profiles, microphone-driven states, blinking, and effects are outside the first 
 
 The fixed-child capture experiment established that OBS could capture a fixed 960×720 child swap chain while the parent changed size. When the child became fully clipped, explicitly hidden, or minimised with its parent, presentation and OBS animation throttled significantly. That approach did not satisfy the requirement that ordinary window management leave stream animation unaffected.
 
-The fixed child swap chain, GDI preview, second output window, second swap chain, and child capture HWND are rejected for the production baseline and must not be reintroduced without a separate product decision.
+The fixed child swap chain, GDI preview, second output window, and child capture HWND are rejected for production and must not be reintroduced without a separate product decision. This rejects that implementation, not the stable-output requirement itself.
 
