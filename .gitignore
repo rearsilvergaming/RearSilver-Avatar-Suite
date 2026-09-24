@@ -1,0 +1,33 @@
+# Visual Studio user and workspace state
+.vs/
+*.user
+*.suo
+*.VC.db
+*.VC.VC.opendb
+
+# CMake-generated build trees and metadata
+out/
+build/
+cmake-build-*/
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+CTestTestfile.cmake
+Makefile
+
+# Compiled output and debug symbols
+*.exe
+*.dll
+*.lib
+*.exp
+*.obj
+*.pdb
+*.ilk
+
+# Runtime and diagnostic output
+*.log
+*.tmp
+
+# Local recovery folders from correcting the initial repository location
+.git-misplaced-backup/
+.git-wrapper-recovery/

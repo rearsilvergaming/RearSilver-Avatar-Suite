@@ -1,0 +1,31 @@
+cmake_minimum_required(VERSION 3.20)
+project(RearSilverAvatarCapturePrototype LANGUAGES CXX)
+add_executable(RearSilverAvatarCapturePrototype WIN32 src/main.cpp)
+set_target_properties(RearSilverAvatarCapturePrototype PROPERTIES OUTPUT_NAME "RearSilverAvatar")
+target_compile_features(RearSilverAvatarCapturePrototype PRIVATE cxx_std_17)
+if(MSVC)
+  target_compile_options(RearSilverAvatarCapturePrototype PRIVATE /utf-8 /EHsc)
+endif()
+target_compile_definitions(RearSilverAvatarCapturePrototype PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(RearSilverAvatarCapturePrototype PRIVATE d3d11 dxgi d3dcompiler windowscodecs ole32 comdlg32 gdi32 user32 version)
+
+# Preserve Diagnostic 18 as the known-good control while the production renderer is integrated.
+add_executable(RearSilverAvatarDiagnostic18 WIN32 EXCLUDE_FROM_ALL src/sdl_diagnostic.cpp)
+set_target_properties(RearSilverAvatarDiagnostic18 PROPERTIES OUTPUT_NAME "RearSilverAvatar-Diagnostic18-Control")
+target_compile_features(RearSilverAvatarDiagnostic18 PRIVATE cxx_std_17)
+if(MSVC)
+  target_compile_options(RearSilverAvatarDiagnostic18 PRIVATE /utf-8 /EHsc)
+endif()
+target_compile_definitions(RearSilverAvatarDiagnostic18 PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(RearSilverAvatarDiagnostic18 PRIVATE d3d11 dxgi d3dcompiler windowscodecs ole32 comdlg32 gdi32 user32 version)
+
+# Disposable architecture diagnostic: one top-level window, one fixed 960x720
+# DXGI capture swap chain, and a separate GDI preview.
+add_executable(RearSilverAvatarArchitectureDiagnostic WIN32 EXCLUDE_FROM_ALL src/architecture_diagnostic.cpp)
+set_target_properties(RearSilverAvatarArchitectureDiagnostic PROPERTIES OUTPUT_NAME "RearSilverAvatar-ArchitectureDiagnostic")
+target_compile_features(RearSilverAvatarArchitectureDiagnostic PRIVATE cxx_std_17)
+if(MSVC)
+  target_compile_options(RearSilverAvatarArchitectureDiagnostic PRIVATE /utf-8 /EHsc)
+endif()
+target_compile_definitions(RearSilverAvatarArchitectureDiagnostic PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(RearSilverAvatarArchitectureDiagnostic PRIVATE d3d11 dxgi comdlg32 gdi32 user32)
