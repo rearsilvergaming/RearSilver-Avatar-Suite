@@ -108,6 +108,10 @@ void initialiseWebView()
                                         if (SUCCEEDED(args->TryGetWebMessageAsString(&message)) && message) {
                                             if (wcscmp(message, L"close-settings") == 0)
                                                 PostMessageW(g_settingsWindow, WM_CLOSE, 0, 0);
+                                            else if (wcscmp(message, L"choose-avatar-png") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsChoosePngMessage,
+                                                             0, reinterpret_cast<LPARAM>(g_settingsWindow));
                                             CoTaskMemFree(message);
                                         }
                                         return S_OK;
@@ -162,6 +166,12 @@ bool showAvatarSettingsWindow(HWND owner)
 bool isAvatarSettingsWindowVisible()
 {
     return g_settingsVisible.load();
+}
+
+void postAvatarSettingsMessage(const std::wstring &message)
+{
+    if (g_webView)
+        g_webView->PostWebMessageAsString(message.c_str());
 }
 
 void shutdownAvatarSettingsWindow()

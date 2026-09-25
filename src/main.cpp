@@ -30,6 +30,7 @@ constexpr wchar_t kWindowClass[] = L"RearSilverAvatarWindow";
 constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar";
 constexpr UINT kRenderFailureMessage = WM_APP + 1;
 constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
+constexpr UINT kImageUploadSuccessMessage = WM_APP + 3;
 constexpr UINT kOutputWidth = 1920;
 constexpr UINT kOutputHeight = 1080;
 constexpr UINT kOutputUiDpi = 192;
@@ -304,12 +305,12 @@ bool decodePng(const wchar_t *path, PendingImage &decoded)
     return true;
 }
 
-void openPngPicker()
+void openPngPicker(HWND owner = nullptr)
 {
     wchar_t path[32768]{};
     OPENFILENAMEW picker{};
     picker.lStructSize = sizeof(picker);
-    picker.hwndOwner = g_mainWindow;
+    picker.hwndOwner = owner && IsWindow(owner) ? owner : g_mainWindow;
     picker.lpstrFilter = L"PNG images\0*.png\0All files\0*.*\0";
     picker.lpstrFile = path;
     picker.nMaxFile = static_cast<DWORD>(std::size(path));
@@ -328,11 +329,17 @@ void openPngPicker()
                 g_hasPendingImage = true;
             }
             logMessage(L"PNG decoded and queued for render-thread upload: " + std::wstring(path));
+            const wchar_t *fileName = wcsrchr(path, L'\\');
+            postAvatarSettingsMessage(std::wstring(L"avatar-image-selected\t") +
+                                      (fileName ? fileName + 1 : path));
         } catch (...) {
-            MessageBoxW(g_mainWindow,
+            postAvatarSettingsMessage(L"avatar-image-error");
+            MessageBoxW(picker.hwndOwner,
                         L"Could not decode this image. Choose a valid PNG no larger than 8192 × 8192 pixels. The current avatar is unchanged.",
                         L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
         }
+    } else if (CommDlgExtendedError() == 0) {
+        postAvatarSettingsMessage(L"avatar-image-cancelled");
     }
     g_dialogOpen.store(false);
 }
@@ -462,6 +469,7 @@ public:
             TextureAsset replacement = createTexture(pending.rgba.data(), pending.width, pending.height);
             avatar_ = std::move(replacement);
             logMessage(L"Avatar atomically replaced after GPU upload: " + pending.path);
+            PostMessageW(window_, kImageUploadSuccessMessage, 0, 0);
         } catch (...) {
             PostMessageW(window_, kImageUploadFailureMessage, 0, 0);
         }
@@ -869,10 +877,17 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (wParam == 'O' && (GetKeyState(VK_CONTROL) & 0x8000))
             openPngPicker();
         return 0;
+    case kAvatarSettingsChoosePngMessage:
+        openPngPicker(reinterpret_cast<HWND>(lParam));
+        return 0;
     case kImageUploadFailureMessage:
+        postAvatarSettingsMessage(L"avatar-image-upload-error");
         MessageBoxW(window,
                     L"The PNG decoded successfully, but its GPU texture could not be created. The current avatar is unchanged.",
                     L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
+        return 0;
+    case kImageUploadSuccessMessage:
+        postAvatarSettingsMessage(L"avatar-image-uploaded");
         return 0;
     case kRenderFailureMessage: {
         g_running.store(false);
