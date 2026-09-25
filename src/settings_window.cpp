@@ -145,6 +145,14 @@ void initialiseWebView()
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsSelectMicrophoneMessage,
                                                              0, reinterpret_cast<LPARAM>(
                                                                     new std::wstring(message + 18)));
+                                            else if (wcsncmp(message, L"reaction-threshold\t", 19) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsReactionThresholdMessage,
+                                                             wcstoul(message + 19, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"release-delay\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsReleaseDelayMessage,
+                                                             wcstoul(message + 14, nullptr, 10), 0);
                                             CoTaskMemFree(message);
                                         }
                                         return S_OK;

@@ -33,7 +33,11 @@ label{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}
 select{width:100%;border:1px solid var(--border);border-radius:9px;background:#1e2430;color:var(--text);font:600 13px Sora;padding:11px 12px}
 .meter{height:18px;margin-top:16px;overflow:hidden;border:1px solid #344257;border-radius:999px;background:#0b0f14}
 .meter-fill{width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#047f91,var(--cyan));transition:width 70ms linear}
+.meter{position:relative}.threshold-marker{position:absolute;top:-2px;bottom:-2px;left:18%;width:2px;background:#fff;box-shadow:0 0 0 1px #0b0f14}
 .meter-scale{display:flex;justify-content:space-between;margin-top:7px;color:var(--muted);font-size:11px}
+.control-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:16px;margin-top:18px}
+.range-heading{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}
+input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .preview-card{position:sticky;top:20px;min-height:0}
 .preview-stage{display:grid;place-items:center;aspect-ratio:1/1;max-height:430px;margin-top:14px;border:1px solid #344257;border-radius:10px;overflow:hidden;background-color:#111821;background-image:linear-gradient(45deg,#1d2734 25%,transparent 25%),linear-gradient(-45deg,#1d2734 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1d2734 75%),linear-gradient(-45deg,transparent 75%,#1d2734 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
 .preview-stage img{display:none;width:100%;height:100%;object-fit:contain}
@@ -43,7 +47,7 @@ select{width:100%;border:1px solid var(--border);border-radius:9px;background:#1
 .state-pill{border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;padding:5px 8px;text-transform:uppercase}
 .tag{display:inline-block;margin-top:16px;border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;letter-spacing:.04em;padding:5px 8px;text-transform:uppercase}
 @media(max-width:920px){.avatar-layout{grid-template-columns:1fr}.preview-card{position:static;grid-row:1}.preview-stage{max-height:340px}}
-@media(max-width:760px){.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
+@media(max-width:760px){.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
 </style>
 </head>
 <body>
@@ -97,8 +101,17 @@ select{width:100%;border:1px solid var(--border);border-radius:9px;background:#1
       <div class="setting-row">
         <div style="flex:1;min-width:0"><label for="microphone-device">Recording device</label><select id="microphone-device"><option>Loading input devices…</option></select></div>
       </div>
-      <div class="meter" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="meter-fill" id="microphone-level"></div></div>
+      <div class="meter" role="meter" aria-label="Microphone input level" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0"><div class="meter-fill" id="microphone-level"></div><div class="threshold-marker" id="threshold-marker"></div></div>
       <div class="meter-scale"><span>Quiet</span><span id="microphone-status">Connecting…</span><span>Loud</span></div>
+    </article>
+    <article class="card" style="margin-top:12px">
+      <h3>Reaction detection</h3>
+      <p>Set how loud the selected input must be before the reaction image appears and how long it remains after speech ends.</p>
+      <div class="control-grid">
+        <div><div class="range-heading"><span>Reaction threshold</span><strong id="threshold-value">18%</strong></div><input id="reaction-threshold" type="range" min="1" max="1000" step="1" value="180"></div>
+        <div><div class="range-heading"><span>Release delay</span><strong id="release-value">250 ms</strong></div><input id="release-delay" type="range" min="0" max="2000" step="50" value="250"></div>
+      </div>
+      <div class="preview-footer"><span>Live avatar state</span><span class="state-pill" id="microphone-reaction-state">Primary</span></div>
     </article>
   </section>
   <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Output controls will be added in a later approved stage.</p></section>
@@ -116,7 +129,8 @@ document.getElementById('choose-avatar').onclick=()=>{
   window.chrome.webview.postMessage('choose-avatar-png');
 };
 let reactionAvailable=false;
-let reactionPreview=false;
+let manualReactionPreview=false;
+let microphoneReaction=false;
 let primaryPreviewUrl='';
 let reactionPreviewUrl='';
 const previewReaction=document.getElementById('preview-reaction');
@@ -128,6 +142,7 @@ avatarPreview.onerror=()=>{
   document.getElementById('preview-empty').style.display='block';
 };
 function updatePreview(){
+  const reactionPreview=manualReactionPreview||microphoneReaction;
   const url=reactionPreview?reactionPreviewUrl:primaryPreviewUrl;
   const file=document.getElementById(reactionPreview?'reaction-file':'avatar-file').textContent;
   avatarPreview.style.display=url?'block':'none';
@@ -143,15 +158,26 @@ document.getElementById('choose-reaction').onclick=()=>{
 };
 previewReaction.onclick=()=>{
   if(!reactionAvailable)return;
-  reactionPreview=!reactionPreview;
-  window.chrome.webview.postMessage(`preview-reaction:${reactionPreview?'on':'off'}`);
+  manualReactionPreview=!manualReactionPreview;
+  window.chrome.webview.postMessage(`preview-reaction:${manualReactionPreview?'on':'off'}`);
 };
 function setReactionAvailable(available){
   reactionAvailable=available;
   previewReaction.disabled=!available;
-  if(!available)reactionPreview=false;
+  if(!available)manualReactionPreview=false;
   updatePreview();
 }
+const thresholdControl=document.getElementById('reaction-threshold');
+const releaseControl=document.getElementById('release-delay');
+function updateThresholdUi(){
+  const percent=Number(thresholdControl.value)/10;
+  document.getElementById('threshold-value').textContent=`${percent.toFixed(1).replace('.0','')}%`;
+  document.getElementById('threshold-marker').style.left=`${percent}%`;
+}
+thresholdControl.oninput=updateThresholdUi;
+thresholdControl.onchange=()=>window.chrome.webview.postMessage(`reaction-threshold\t${thresholdControl.value}`);
+releaseControl.oninput=()=>document.getElementById('release-value').textContent=`${releaseControl.value} ms`;
+releaseControl.onchange=()=>window.chrome.webview.postMessage(`release-delay\t${releaseControl.value}`);
 microphoneDevice.onchange=()=>{
   document.getElementById('microphone-status').textContent='Connecting…';
   window.chrome.webview.postMessage(`select-microphone\t${microphoneDevice.value}`);
@@ -209,11 +235,11 @@ window.chrome.webview.addEventListener('message',event=>{
   }else if(type==='reaction-image-upload-error'){
     document.getElementById('reaction-status').textContent='The image could not be uploaded. The current reaction image is unchanged.';
   }else if(type==='reaction-preview-on'){
-    reactionPreview=true;
+    manualReactionPreview=true;
     previewReaction.textContent='Show primary';
     updatePreview();
   }else if(type==='reaction-preview-off'){
-    reactionPreview=false;
+    manualReactionPreview=false;
     previewReaction.textContent='Preview reaction';
     updatePreview();
   }else if(type==='primary-preview-image'){
@@ -253,6 +279,18 @@ window.chrome.webview.addEventListener('message',event=>{
     microphoneMeter.setAttribute('aria-valuenow',String(Math.round(level)));
   }else if(type==='microphone-status'){
     document.getElementById('microphone-status').textContent=value;
+  }else if(type==='reaction-threshold'){
+    thresholdControl.value=value;
+    updateThresholdUi();
+  }else if(type==='release-delay'){
+    releaseControl.value=value;
+    document.getElementById('release-value').textContent=`${value} ms`;
+  }else if(type==='microphone-reaction-on'){
+    microphoneReaction=true;
+    document.getElementById('microphone-reaction-state').textContent='Reaction';
+  }else if(type==='microphone-reaction-off'){
+    microphoneReaction=false;
+    document.getElementById('microphone-reaction-state').textContent='Primary';
   }
   updatePreview();
 });

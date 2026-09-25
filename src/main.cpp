@@ -73,6 +73,11 @@ bool g_primaryImageLoaded = false;
 std::wstring g_reactionImagePath;
 bool g_reactionImageLoaded = false;
 std::atomic<bool> g_previewReaction{false};
+std::atomic<bool> g_microphoneReaction{false};
+std::atomic<bool> g_reactionAvailable{false};
+std::atomic<unsigned> g_reactionThreshold{180};
+std::atomic<unsigned> g_releaseDelayMs{250};
+ULONGLONG g_lastAboveThreshold = 0;
 std::unique_ptr<AudioInputMonitor> g_audioMonitor;
 std::wstring g_selectedMicrophoneId;
 std::atomic<int> g_audioMonitorStatus{0};
@@ -231,6 +236,34 @@ void sendMicrophoneState()
                                                         : L"microphone-status\tConnecting…");
     postAvatarSettingsMessage(L"microphone-level\t" +
                               std::to_wstring(g_audioMonitorLevel.load()));
+    postAvatarSettingsMessage(L"reaction-threshold\t" +
+                              std::to_wstring(g_reactionThreshold.load()));
+    postAvatarSettingsMessage(L"release-delay\t" +
+                              std::to_wstring(g_releaseDelayMs.load()));
+    postAvatarSettingsMessage(g_microphoneReaction.load() ? L"microphone-reaction-on"
+                                                           : L"microphone-reaction-off");
+}
+
+void setMicrophoneReaction(bool active)
+{
+    active = active && g_reactionAvailable.load();
+    if (g_microphoneReaction.exchange(active) != active)
+        postAvatarSettingsMessage(active ? L"microphone-reaction-on"
+                                         : L"microphone-reaction-off");
+}
+
+void processMicrophoneLevel(unsigned level)
+{
+    const unsigned threshold = g_reactionThreshold.load();
+    const unsigned hysteresis = 30;
+    const ULONGLONG now = GetTickCount64();
+    if (level >= threshold) {
+        g_lastAboveThreshold = now;
+        setMicrophoneReaction(true);
+    } else if (g_microphoneReaction.load() && level + hysteresis < threshold &&
+               now - g_lastAboveThreshold >= g_releaseDelayMs.load()) {
+        setMicrophoneReaction(false);
+    }
 }
 
 void check(HRESULT result)
@@ -587,6 +620,7 @@ public:
             if (pending.slot == ImageSlot::Reaction) {
                 reactionAvatar_ = std::move(replacement);
                 reactionAvatarLoaded_ = true;
+                g_reactionAvailable.store(true);
                 {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_reactionImagePath = pending.path;
@@ -634,7 +668,9 @@ public:
         const float maxWidth = static_cast<float>(width_) * 0.68f;
         const float maxHeight = static_cast<float>(height_) * 0.68f;
         const TextureAsset &activeAvatar =
-            g_previewReaction.load() && reactionAvatarLoaded_ ? reactionAvatar_ : primaryAvatar_;
+            (g_previewReaction.load() || g_microphoneReaction.load()) && reactionAvatarLoaded_
+                ? reactionAvatar_
+                : primaryAvatar_;
         const float scale = std::min(maxWidth / activeAvatar.width, maxHeight / activeAvatar.height);
         const float avatarWidth = activeAvatar.width * scale;
         const float avatarHeight = activeAvatar.height * scale;
@@ -1040,13 +1076,24 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             g_audioMonitor = std::make_unique<AudioInputMonitor>();
         g_audioMonitorStatus.store(0);
         g_audioMonitorLevel.store(0);
+        setMicrophoneReaction(false);
         postAvatarSettingsMessage(L"microphone-status\tConnecting…");
         postAvatarSettingsMessage(L"microphone-level\t0");
         g_audioMonitor->start(window, g_selectedMicrophoneId);
         return 0;
     }
+    case kAvatarSettingsReactionThresholdMessage:
+        g_reactionThreshold.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 1, 1000));
+        saveSetting(L"ReactionThreshold", std::to_wstring(g_reactionThreshold.load()));
+        processMicrophoneLevel(g_audioMonitorLevel.load());
+        return 0;
+    case kAvatarSettingsReleaseDelayMessage:
+        g_releaseDelayMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 5000));
+        saveSetting(L"ReleaseDelayMs", std::to_wstring(g_releaseDelayMs.load()));
+        return 0;
     case kAudioMonitorLevelMessage:
         g_audioMonitorLevel.store(static_cast<unsigned>(wParam));
+        processMicrophoneLevel(static_cast<unsigned>(wParam));
         postAvatarSettingsMessage(L"microphone-level\t" + std::to_wstring(wParam));
         return 0;
     case kAudioMonitorStatusMessage:
@@ -1055,6 +1102,8 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                                                : L"microphone-status\tInput unavailable");
         if (wParam != 1)
             postAvatarSettingsMessage(L"microphone-level\t0");
+        if (wParam != 1)
+            setMicrophoneReaction(false);
         return 0;
     case kImageUploadFailureMessage:
         if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
@@ -1184,6 +1233,15 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
                                  ? L""
                                  : savedMicrophone;
     g_audioMonitor = std::make_unique<AudioInputMonitor>();
+
+    const std::wstring savedThreshold = loadSetting(L"ReactionThreshold");
+    if (!savedThreshold.empty())
+        g_reactionThreshold.store(std::clamp<unsigned>(wcstoul(savedThreshold.c_str(), nullptr, 10),
+                                                       1, 1000));
+    const std::wstring savedRelease = loadSetting(L"ReleaseDelayMs");
+    if (!savedRelease.empty())
+        g_releaseDelayMs.store(std::clamp<unsigned>(wcstoul(savedRelease.c_str(), nullptr, 10),
+                                                    0, 5000));
     g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
 
     g_running.store(true);
