@@ -10,4 +10,5 @@ constexpr UINT kAvatarSettingsPreviewReactionMessage = WM_APP + 13;
 bool showAvatarSettingsWindow(HWND owner);
 bool isAvatarSettingsWindowVisible();
 void postAvatarSettingsMessage(const std::wstring &message);
+void setAvatarSettingsPreviewImage(bool reaction, const std::wstring &path);
 void shutdownAvatarSettingsWindow();

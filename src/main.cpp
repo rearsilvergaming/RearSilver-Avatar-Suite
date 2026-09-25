@@ -192,6 +192,7 @@ void sendPrimaryImageState()
     if (g_primaryImagePath.empty()) {
         postAvatarSettingsMessage(L"avatar-image-default");
     } else if (g_primaryImageLoaded) {
+        setAvatarSettingsPreviewImage(false, g_primaryImagePath);
         postAvatarSettingsMessage(L"avatar-image-current\t" + fileNameFromPath(g_primaryImagePath));
     } else {
         postAvatarSettingsMessage(L"avatar-image-unavailable\t" + fileNameFromPath(g_primaryImagePath));
@@ -204,6 +205,7 @@ void sendReactionImageState()
     if (g_reactionImagePath.empty()) {
         postAvatarSettingsMessage(L"reaction-image-empty");
     } else if (g_reactionImageLoaded) {
+        setAvatarSettingsPreviewImage(true, g_reactionImagePath);
         postAvatarSettingsMessage(L"reaction-image-current\t" + fileNameFromPath(g_reactionImagePath));
     } else {
         postAvatarSettingsMessage(L"reaction-image-unavailable\t" + fileNameFromPath(g_reactionImagePath));
@@ -1020,6 +1022,13 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
         return 0;
     case kImageUploadSuccessMessage:
+        if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            setAvatarSettingsPreviewImage(true, g_reactionImagePath);
+        } else {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            setAvatarSettingsPreviewImage(false, g_primaryImagePath);
+        }
         postAvatarSettingsMessage(static_cast<ImageSlot>(wParam) == ImageSlot::Reaction
                                       ? L"reaction-image-uploaded"
                                       : L"avatar-image-uploaded");

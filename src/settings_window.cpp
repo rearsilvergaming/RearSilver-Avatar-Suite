@@ -40,6 +40,17 @@ std::wstring webViewDataDirectory()
     return result;
 }
 
+std::wstring previewDirectory()
+{
+    wchar_t localAppData[MAX_PATH]{};
+    GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH);
+    const std::wstring root = std::wstring(localAppData) + L"\\RearSilver Avatar";
+    CreateDirectoryW(root.c_str(), nullptr);
+    const std::wstring result = root + L"\\Preview";
+    CreateDirectoryW(result.c_str(), nullptr);
+    return result;
+}
+
 void resizeWebView()
 {
     if (!g_controller || !g_settingsWindow)
@@ -95,6 +106,10 @@ void initialiseWebView()
                                 webView3->SetVirtualHostNameToFolderMapping(
                                     L"app.rearsilver-avatar.test", assets.c_str(),
                                     COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_ALLOW);
+                                const std::wstring previews = previewDirectory();
+                                webView3->SetVirtualHostNameToFolderMapping(
+                                    L"preview.rearsilver-avatar.test", previews.c_str(),
+                                    COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
                             }
                             ComPtr<ICoreWebView2Settings> settings;
                             if (SUCCEEDED(g_webView->get_Settings(&settings))) {
@@ -185,6 +200,19 @@ void postAvatarSettingsMessage(const std::wstring &message)
 {
     if (g_webView)
         g_webView->PostWebMessageAsString(message.c_str());
+}
+
+void setAvatarSettingsPreviewImage(bool reaction, const std::wstring &path)
+{
+    if (!g_webView || path.empty())
+        return;
+    const wchar_t *fileName = reaction ? L"reaction.png" : L"primary.png";
+    const std::wstring cachedPath = previewDirectory() + L"\\" + fileName;
+    if (!CopyFileW(path.c_str(), cachedPath.c_str(), FALSE))
+        return;
+    postAvatarSettingsMessage(std::wstring(reaction ? L"reaction-preview-image\t"
+                                                     : L"primary-preview-image\t") +
+                              fileName + L"?revision=" + std::to_wstring(GetTickCount64()));
 }
 
 void shutdownAvatarSettingsWindow()
