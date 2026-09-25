@@ -140,6 +140,11 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsPreviewReactionMessage,
                                                              wcscmp(message + 17, L"on") == 0, 0);
+                                            else if (wcsncmp(message, L"select-microphone\t", 18) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsSelectMicrophoneMessage,
+                                                             0, reinterpret_cast<LPARAM>(
+                                                                    new std::wstring(message + 18)));
                                             CoTaskMemFree(message);
                                         }
                                         return S_OK;

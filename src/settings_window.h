@@ -6,6 +6,7 @@ constexpr UINT kAvatarSettingsChoosePngMessage = WM_APP + 10;
 constexpr UINT kAvatarSettingsReadyMessage = WM_APP + 11;
 constexpr UINT kAvatarSettingsChooseReactionPngMessage = WM_APP + 12;
 constexpr UINT kAvatarSettingsPreviewReactionMessage = WM_APP + 13;
+constexpr UINT kAvatarSettingsSelectMicrophoneMessage = WM_APP + 14;
 
 bool showAvatarSettingsWindow(HWND owner);
 bool isAvatarSettingsWindowVisible();

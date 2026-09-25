@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(RearSilverAvatarCapturePrototype LANGUAGES CXX)
-add_executable(RearSilverAvatarCapturePrototype WIN32 src/main.cpp src/settings_window.cpp)
+add_executable(RearSilverAvatarCapturePrototype WIN32 src/main.cpp src/settings_window.cpp src/audio_monitor.cpp)
 set_target_properties(RearSilverAvatarCapturePrototype PROPERTIES OUTPUT_NAME "RearSilverAvatar")
 target_compile_features(RearSilverAvatarCapturePrototype PRIVATE cxx_std_17)
 if(MSVC)
@@ -8,7 +8,7 @@ if(MSVC)
 endif()
 target_compile_definitions(RearSilverAvatarCapturePrototype PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(RearSilverAvatarCapturePrototype PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include")
-target_link_libraries(RearSilverAvatarCapturePrototype PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 comdlg32 gdi32 user32 version
+target_link_libraries(RearSilverAvatarCapturePrototype PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 user32 version
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
 add_custom_command(TARGET RearSilverAvatarCapturePrototype POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different

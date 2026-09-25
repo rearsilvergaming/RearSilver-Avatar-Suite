@@ -11,6 +11,7 @@
 #include <wrl/client.h>
 
 #include "settings_window.h"
+#include "audio_monitor.h"
 
 #include <algorithm>
 #include <atomic>
@@ -19,6 +20,7 @@
 #include <cstring>
 #include <deque>
 #include <mutex>
+#include <memory>
 #include <string>
 #include <thread>
 #include <vector>
@@ -71,6 +73,10 @@ bool g_primaryImageLoaded = false;
 std::wstring g_reactionImagePath;
 bool g_reactionImageLoaded = false;
 std::atomic<bool> g_previewReaction{false};
+std::unique_ptr<AudioInputMonitor> g_audioMonitor;
+std::wstring g_selectedMicrophoneId;
+std::atomic<int> g_audioMonitorStatus{0};
+std::atomic<unsigned> g_audioMonitorLevel{0};
 
 struct RectF {
     float x = 0;
@@ -160,7 +166,7 @@ void ensureUnicodeSettingsFile(const std::wstring &path)
     CloseHandle(file);
 }
 
-std::wstring loadSavedImagePath(const wchar_t *key)
+std::wstring loadSetting(const wchar_t *key)
 {
     const std::wstring path = settingsFilePath();
     if (path.empty())
@@ -171,13 +177,13 @@ std::wstring loadSavedImagePath(const wchar_t *key)
     return value;
 }
 
-void saveImagePath(const wchar_t *key, const std::wstring &imagePath)
+void saveSetting(const wchar_t *key, const std::wstring &value)
 {
     const std::wstring path = settingsFilePath();
     if (path.empty())
         return;
     ensureUnicodeSettingsFile(path);
-    WritePrivateProfileStringW(L"Avatar", key, imagePath.c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Avatar", key, value.c_str(), path.c_str());
 }
 
 std::wstring fileNameFromPath(const std::wstring &path)
@@ -210,6 +216,21 @@ void sendReactionImageState()
     } else {
         postAvatarSettingsMessage(L"reaction-image-unavailable\t" + fileNameFromPath(g_reactionImagePath));
     }
+}
+
+void sendMicrophoneState()
+{
+    const std::vector<AudioInputDevice> devices = enumerateAudioInputDevices();
+    std::wstring message = L"microphone-devices\t" + g_selectedMicrophoneId;
+    for (const AudioInputDevice &device : devices)
+        message += L"\n" + device.id + L"\t" + device.name;
+    postAvatarSettingsMessage(message);
+    const int status = g_audioMonitorStatus.load();
+    postAvatarSettingsMessage(status == 1 ? L"microphone-status\tListening"
+                                          : status == 2 ? L"microphone-status\tInput unavailable"
+                                                        : L"microphone-status\tConnecting…");
+    postAvatarSettingsMessage(L"microphone-level\t" +
+                              std::to_wstring(g_audioMonitorLevel.load()));
 }
 
 void check(HRESULT result)
@@ -571,7 +592,7 @@ public:
                     g_reactionImagePath = pending.path;
                     g_reactionImageLoaded = true;
                 }
-                saveImagePath(L"ReactionImage", pending.path);
+                saveSetting(L"ReactionImage", pending.path);
             } else {
                 primaryAvatar_ = std::move(replacement);
                 {
@@ -579,7 +600,7 @@ public:
                     g_primaryImagePath = pending.path;
                     g_primaryImageLoaded = true;
                 }
-                saveImagePath(L"PrimaryImage", pending.path);
+                saveSetting(L"PrimaryImage", pending.path);
             }
             logMessage(L"Avatar atomically replaced after GPU upload: " + pending.path);
             PostMessageW(window_, kImageUploadSuccessMessage, static_cast<WPARAM>(pending.slot), 0);
@@ -1007,7 +1028,33 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsReadyMessage:
         sendPrimaryImageState();
         sendReactionImageState();
+        sendMicrophoneState();
         postAvatarSettingsMessage(L"reaction-preview-off");
+        return 0;
+    case kAvatarSettingsSelectMicrophoneMessage: {
+        std::unique_ptr<std::wstring> selected(reinterpret_cast<std::wstring *>(lParam));
+        g_selectedMicrophoneId = selected && *selected != L"@default" ? *selected : L"";
+        saveSetting(L"MicrophoneDevice", g_selectedMicrophoneId.empty() ? L"@default"
+                                                                         : g_selectedMicrophoneId);
+        if (!g_audioMonitor)
+            g_audioMonitor = std::make_unique<AudioInputMonitor>();
+        g_audioMonitorStatus.store(0);
+        g_audioMonitorLevel.store(0);
+        postAvatarSettingsMessage(L"microphone-status\tConnecting…");
+        postAvatarSettingsMessage(L"microphone-level\t0");
+        g_audioMonitor->start(window, g_selectedMicrophoneId);
+        return 0;
+    }
+    case kAudioMonitorLevelMessage:
+        g_audioMonitorLevel.store(static_cast<unsigned>(wParam));
+        postAvatarSettingsMessage(L"microphone-level\t" + std::to_wstring(wParam));
+        return 0;
+    case kAudioMonitorStatusMessage:
+        g_audioMonitorStatus.store(static_cast<int>(wParam));
+        postAvatarSettingsMessage(wParam == 1 ? L"microphone-status\tListening"
+                                               : L"microphone-status\tInput unavailable");
+        if (wParam != 1)
+            postAvatarSettingsMessage(L"microphone-level\t0");
         return 0;
     case kImageUploadFailureMessage:
         if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
@@ -1093,7 +1140,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     ShowWindow(g_mainWindow, showCommand);
     UpdateWindow(g_mainWindow);
 
-    const std::wstring savedPrimaryImage = loadSavedImagePath(L"PrimaryImage");
+    const std::wstring savedPrimaryImage = loadSetting(L"PrimaryImage");
     if (!savedPrimaryImage.empty()) {
         {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
@@ -1112,7 +1159,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         }
     }
 
-    const std::wstring savedReactionImage = loadSavedImagePath(L"ReactionImage");
+    const std::wstring savedReactionImage = loadSetting(L"ReactionImage");
     if (!savedReactionImage.empty()) {
         {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
@@ -1132,6 +1179,13 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         }
     }
 
+    const std::wstring savedMicrophone = loadSetting(L"MicrophoneDevice");
+    g_selectedMicrophoneId = savedMicrophone.empty() || savedMicrophone == L"@default"
+                                 ? L""
+                                 : savedMicrophone;
+    g_audioMonitor = std::make_unique<AudioInputMonitor>();
+    g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
+
     g_running.store(true);
     std::thread renderThread(renderThreadMain);
 
@@ -1150,6 +1204,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     }
 
     g_running.store(false);
+    if (g_audioMonitor)
+        g_audioMonitor->stop();
     if (renderThread.joinable())
         renderThread.join();
     shutdownAvatarSettingsWindow();
