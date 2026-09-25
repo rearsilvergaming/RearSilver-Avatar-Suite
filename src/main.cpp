@@ -10,6 +10,8 @@
 #include <wincodec.h>
 #include <wrl/client.h>
 
+#include "settings_window.h"
+
 #include <algorithm>
 #include <atomic>
 #include <cmath>
@@ -36,7 +38,6 @@ HWND g_mainWindow = nullptr;
 std::atomic<bool> g_running{false};
 std::atomic<bool> g_applicationActive{true};
 std::atomic<bool> g_dialogOpen{false};
-std::atomic<bool> g_sidebarOpen{true};
 std::atomic<bool> g_motionEnabled{true};
 std::atomic<int> g_backgroundMode{0};
 std::atomic<UINT> g_clientWidth{960};
@@ -70,42 +71,20 @@ struct RectF {
 };
 
 struct UiLayout {
-    RectF toggle;
-    RectF panel;
-    RectF loadPng;
-    RectF background;
-    RectF motion;
-    bool sidebarOpen = false;
+    RectF avatar;
+    RectF settings;
 };
 
-UiLayout calculateUiLayout(UINT clientWidth, UINT clientHeight, UINT dpi, bool sidebarOpen)
+UiLayout calculateUiLayout(UINT, UINT, UINT dpi)
 {
     const float scale = std::max(1.0f, static_cast<float>(dpi) / 96.0f);
     const float margin = 16.0f * scale;
-    const float toggleSize = 48.0f * scale;
-    const float gap = 10.0f * scale;
-    const float buttonHeight = 46.0f * scale;
-    const float availableWidth = std::max(1.0f, static_cast<float>(clientWidth) - margin * 2.0f);
-    const float panelWidth = std::min(300.0f * scale, std::max(220.0f * scale, availableWidth * 0.30f));
+    const float gap = 8.0f * scale;
+    const float iconSize = 44.0f * scale;
 
     UiLayout result;
-    result.sidebarOpen = sidebarOpen;
-    result.toggle = {margin, margin, toggleSize, toggleSize};
-    if (!sidebarOpen)
-        return result;
-
-    const float panelTop = margin + toggleSize + gap;
-    const float wantedHeight = gap * 4.0f + buttonHeight * 3.0f + 60.0f * scale;
-    const float panelHeight = std::min(wantedHeight, std::max(1.0f, static_cast<float>(clientHeight) - panelTop - margin));
-    result.panel = {margin, panelTop, panelWidth, panelHeight};
-    const float buttonX = result.panel.x + gap;
-    const float buttonWidth = std::max(1.0f, result.panel.width - gap * 2.0f);
-    float buttonY = result.panel.y + 48.0f * scale;
-    result.loadPng = {buttonX, buttonY, buttonWidth, buttonHeight};
-    buttonY += buttonHeight + gap;
-    result.background = {buttonX, buttonY, buttonWidth, buttonHeight};
-    buttonY += buttonHeight + gap;
-    result.motion = {buttonX, buttonY, buttonWidth, buttonHeight};
+    result.avatar = {margin, margin, iconSize, iconSize};
+    result.settings = {margin, margin + iconSize + gap, iconSize, iconSize};
     return result;
 }
 
@@ -523,7 +502,8 @@ public:
              (static_cast<float>(height_) - avatarHeight) * 0.5f + bob, avatarWidth,
              avatarHeight);
 
-        const bool overlayVisible = g_applicationActive.load() && !g_dialogOpen.load();
+        const bool overlayVisible = g_applicationActive.load() && !g_dialogOpen.load() &&
+                                    !isAvatarSettingsWindowVisible();
         if (overlayVisible)
             drawOverlay();
 
@@ -707,14 +687,11 @@ private:
             }
         }
         avatar_ = createTexture(pixels.data(), size, size);
-        white_ = createSolid(255, 255, 255, 255);
-        panel_ = createSolid(17, 23, 38, 235);
-        button_ = createSolid(40, 55, 82, 245);
-        accent_ = createSolid(45, 205, 188, 255);
-        titleText_ = createText(L"REARSILVER AVATAR", 28, RGB(244, 247, 255));
-        loadText_ = createText(L"SELECT PNG", 24, RGB(244, 247, 255));
-        backgroundText_ = createText(L"BACKGROUND", 24, RGB(244, 247, 255));
-        motionText_ = createText(L"MOTION", 24, RGB(244, 247, 255));
+        control_ = createSolid(30, 36, 48, 255);
+        border_ = createSolid(48, 59, 74, 255);
+        accent_ = createSolid(0, 212, 255, 255);
+        avatarIconText_ = createText(L"A", 30, RGB(230, 232, 235));
+        settingsIconText_ = createText(L"S", 30, RGB(230, 232, 235));
     }
 
     void bindPipeline()
@@ -757,6 +734,15 @@ private:
         draw(texture, rect.x, rect.y, rect.width, rect.height);
     }
 
+    void drawOutlinedRect(const RectF &rect, const TextureAsset &fill, float borderWidth = 2.0f)
+    {
+        drawRect(border_, rect);
+        const RectF inner{rect.x + borderWidth, rect.y + borderWidth,
+                          std::max(1.0f, rect.width - borderWidth * 2.0f),
+                          std::max(1.0f, rect.height - borderWidth * 2.0f)};
+        drawRect(fill, inner);
+    }
+
     void drawLabel(const TextureAsset &label, const RectF &bounds, float maxHeight)
     {
         const float scale = std::min((bounds.width - 24.0f) / label.width,
@@ -769,38 +755,13 @@ private:
 
     void drawOverlay()
     {
-        const UiLayout ui = calculateUiLayout(width_, height_, kOutputUiDpi,
-                                              g_sidebarOpen.load());
-        drawRect(panel_, ui.toggle);
-        const float inset = ui.toggle.width * 0.25f;
-        const float lineHeight = std::max(2.0f, ui.toggle.height * 0.055f);
-        for (int line = 0; line < 3; ++line) {
-            RectF bar{ui.toggle.x + inset,
-                      ui.toggle.y + inset + line * ui.toggle.height * 0.18f,
-                      ui.toggle.width - inset * 2.0f, lineHeight};
-            drawRect(accent_, bar);
-        }
-        if (!ui.sidebarOpen)
-            return;
-
-        drawRect(panel_, ui.panel);
-        RectF titleBounds{ui.panel.x + 10.0f, ui.panel.y + 8.0f,
-                          ui.panel.width - 20.0f, 32.0f};
-        drawLabel(titleText_, titleBounds, 24.0f);
-        drawRect(button_, ui.loadPng);
-        drawRect(button_, ui.background);
-        drawRect(button_, ui.motion);
-        drawLabel(loadText_, ui.loadPng, ui.loadPng.height * 0.42f);
-        drawLabel(backgroundText_, ui.background, ui.background.height * 0.42f);
-        drawLabel(motionText_, ui.motion, ui.motion.height * 0.42f);
-
-        const float marker = 10.0f;
-        const RectF backgroundMarker{ui.background.x, ui.background.y, marker, ui.background.height};
-        drawRect(g_backgroundMode.load() == 1 ? white_ : accent_, backgroundMarker);
-        if (g_motionEnabled.load()) {
-            const RectF motionMarker{ui.motion.x, ui.motion.y, marker, ui.motion.height};
-            drawRect(accent_, motionMarker);
-        }
+        const UiLayout ui = calculateUiLayout(width_, height_, kOutputUiDpi);
+        drawOutlinedRect(ui.avatar, control_, 2.0f);
+        drawLabel(avatarIconText_, ui.avatar, ui.avatar.height * 0.42f);
+        drawOutlinedRect(ui.settings, control_, 2.0f);
+        drawLabel(settingsIconText_, ui.settings, ui.settings.height * 0.42f);
+        const RectF activeEdge{ui.settings.x, ui.settings.y, 5.0f, ui.settings.height};
+        drawRect(accent_, activeEdge);
     }
 
     HWND window_ = nullptr;
@@ -821,14 +782,11 @@ private:
     ComPtr<ID3D11SamplerState> sampler_;
     ComPtr<ID3D11BlendState> blend_;
     TextureAsset avatar_;
-    TextureAsset white_;
-    TextureAsset panel_;
-    TextureAsset button_;
+    TextureAsset control_;
+    TextureAsset border_;
     TextureAsset accent_;
-    TextureAsset titleText_;
-    TextureAsset loadText_;
-    TextureAsset backgroundText_;
-    TextureAsset motionText_;
+    TextureAsset avatarIconText_;
+    TextureAsset settingsIconText_;
 };
 
 void renderThreadMain()
@@ -873,28 +831,16 @@ void handlePointerRelease(HWND window, float x, float y)
     const float outputY = (y - offsetY) / scale;
     if (outputX < 0.0f || outputY < 0.0f || outputX >= kOutputWidth || outputY >= kOutputHeight)
         return;
-    const UiLayout ui = calculateUiLayout(kOutputWidth, kOutputHeight, kOutputUiDpi,
-                                          g_sidebarOpen.load());
-    if (ui.toggle.contains(outputX, outputY)) {
-        g_sidebarOpen.store(!g_sidebarOpen.load());
-        return;
-    }
-    if (!ui.sidebarOpen)
-        return;
-    if (ui.loadPng.contains(outputX, outputY)) {
-        openPngPicker();
-    } else if (ui.background.contains(outputX, outputY)) {
-        g_backgroundMode.store((g_backgroundMode.load() + 1) % 3);
-    } else if (ui.motion.contains(outputX, outputY)) {
-        g_motionEnabled.store(!g_motionEnabled.load());
-    }
+    const UiLayout ui = calculateUiLayout(kOutputWidth, kOutputHeight, kOutputUiDpi);
+    if (ui.settings.contains(outputX, outputY))
+        showAvatarSettingsWindow(window);
 }
 
 LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
-    case WM_ACTIVATEAPP:
-        g_applicationActive.store(wParam != 0);
+    case WM_ACTIVATE:
+        g_applicationActive.store(LOWORD(wParam) != WA_INACTIVE);
         return 0;
     case WM_DPICHANGED: {
         const RECT *suggested = reinterpret_cast<const RECT *>(lParam);
@@ -1007,6 +953,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     g_running.store(false);
     if (renderThread.joinable())
         renderThread.join();
+    shutdownAvatarSettingsWindow();
     if (g_logFile != INVALID_HANDLE_VALUE)
         CloseHandle(g_logFile);
     CoUninitialize();

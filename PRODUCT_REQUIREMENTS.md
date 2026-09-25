@@ -41,21 +41,24 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 
 - RearSilver Avatar is a standalone companion product in the RearSilver Stream Suite family. Use the same core navigation and control language so users encounter familiar tabs, panels, buttons, typography, spacing, states, terminology, and cyan-accented dark visual treatment across both products.
 - The Stream Suite settings pages and guided setup are the direct visual and behavioural references. Avatar-specific previews, meters, thumbnails, and icons may provide product identity without creating a separate interface language.
-- Retire the floating collapsible sidebar as the target product interface. It remains temporary prototype code until its replacement is separately authorised and implemented.
-- The normal focused view uses a compact preset selector and a Settings entry point over the avatar composition.
-- Settings opens a large custom-rendered panel with Stream Suite-style horizontal tab navigation, clear page headings, short explanatory copy, and grouped cards or control sections.
-- First run uses a guided setup based directly on the Stream Suite pattern: visible progress, a page title and explanation, grouped settings, automatic progress saving, and Back, Skip for now, and Continue actions.
+- The floating collapsible sidebar and the temporary large D3D settings panel have been retired and removed. The renderer now contains only a small vertical quick-navigation rail; heavyweight settings belong to the owned WebView2 interface.
+- The normal focused renderer view uses a small vertical quick-navigation icon rail inside the fixed D3D composition. It may briefly appear in Game Capture while the user interacts directly with the renderer.
+- The quick-navigation rail hides whenever the main renderer window is not the active interaction surface, including while the owned Settings window has focus. This returns Game Capture to the clean avatar/background composition during configuration.
+- Full Settings and Guided Setup are not rendered into the fixed OBS canvas. Settings opens in an owned native window containing WebView2, with Stream Suite-style horizontal tab navigation, clear page headings, short explanatory copy, and grouped cards or control sections.
+- The owned Settings window is application UI rather than an OBS output surface. It must not modify, resize, suspend, re-parent, or otherwise disturb the validated DirectComposition renderer, its animation, its fixed canvas, or the user's OBS transform.
+- Native-to-HTML communication uses WebView2 messages following the Stream Suite hosting pattern. Avatar may reuse Stream Suite styling and assets where appropriate while retaining its own product identity and content.
+- First run uses a guided setup in the owned WebView2 interface based directly on the Stream Suite pattern: visible progress, a page title and explanation, grouped settings, automatic progress saving, and Back, Skip for now, and Continue actions.
 - Guided setup and normal Settings reuse the same controls, layout components, validation, and stored settings. Do not implement separate copies of the same configuration workflow.
 - The initial candidate setup areas are Output, Avatar Images, Microphone, Voice Detection, Blink and Motion, and Review and Finish. Their exact names, grouping, order, and page count remain provisional until real control density and workflow testing justify the final structure.
-- The preset selector, Settings entry point, settings panel, guided setup, and all subordinate controls remain overlay content. They must never alter the avatar transform or configured OBS canvas.
-- All visible overlay UI hides together when RearSilver Avatar loses foreground application status.
-- Do not introduce a separate settings HWND, second user-facing window, native Win32 settings dialog, or generic native control styling for this interface.
+- The quick-navigation rail is overlay content and must never alter the avatar transform or configured OBS canvas. The owned Settings window and its WebView content remain outside that composition entirely.
+- Closing Settings returns focus to the Avatar renderer without changing the avatar, animation phase, output canvas, background, or OBS transform.
+- Do not introduce a second renderer/output window, native Win32 settings dialog, or generic native control styling. The owned WebView2 Settings window is the authorised application-interface exception to the single-renderer-window rule.
 
 ## Overlay visibility and focus
 
-- While RearSilver Avatar is the foreground application, the complete overlay UI is visible locally and is intentionally included in OBS Game Capture.
-- When RearSilver Avatar loses foreground application status, hide the entire overlay and leave only the avatar/background composition visible locally and in OBS.
-- Treat interaction with UI owned by the RearSilver Avatar top-level window as part of the foreground application rather than requiring the foreground HWND to equal the top-level HWND exactly.
+- While the main RearSilver Avatar renderer window is active, its small quick-navigation overlay is visible locally and may be included in OBS Game Capture.
+- When the main renderer window loses active-window status, including when the owned Settings window receives focus, hide the entire D3D overlay and leave only the avatar/background composition visible locally and in OBS.
+- Base quick-navigation visibility on activation of the main renderer window itself. Owned Settings and picker windows deliberately deactivate the renderer overlay even though they remain part of the RearSilver Avatar application.
 - An owned file picker takes foreground status away from the avatar window, so the overlay must disappear while the picker is open.
 - Hiding the overlay must not change the avatar transform, animation, background, swap-chain dimensions, or OBS capture.
 

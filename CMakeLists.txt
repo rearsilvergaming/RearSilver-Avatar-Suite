@@ -1,13 +1,25 @@
 cmake_minimum_required(VERSION 3.20)
 project(RearSilverAvatarCapturePrototype LANGUAGES CXX)
-add_executable(RearSilverAvatarCapturePrototype WIN32 src/main.cpp)
+add_executable(RearSilverAvatarCapturePrototype WIN32 src/main.cpp src/settings_window.cpp)
 set_target_properties(RearSilverAvatarCapturePrototype PROPERTIES OUTPUT_NAME "RearSilverAvatar")
 target_compile_features(RearSilverAvatarCapturePrototype PRIVATE cxx_std_17)
 if(MSVC)
   target_compile_options(RearSilverAvatarCapturePrototype PRIVATE /utf-8 /EHsc)
 endif()
 target_compile_definitions(RearSilverAvatarCapturePrototype PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_link_libraries(RearSilverAvatarCapturePrototype PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 comdlg32 gdi32 user32 version)
+target_include_directories(RearSilverAvatarCapturePrototype PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include")
+target_link_libraries(RearSilverAvatarCapturePrototype PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 comdlg32 gdi32 user32 version
+  "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
+add_custom_command(TARGET RearSilverAvatarCapturePrototype POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/bin/x64/WebView2Loader.dll"
+    "$<TARGET_FILE_DIR:RearSilverAvatarCapturePrototype>"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/avatar-settings.html"
+    "$<TARGET_FILE_DIR:RearSilverAvatarCapturePrototype>/avatar-settings.html"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/fonts/Sora-Variable.ttf"
+    "$<TARGET_FILE_DIR:RearSilverAvatarCapturePrototype>/Sora-Variable.ttf")
 
 # Preserve Diagnostic 18 as the known-good control while the production renderer is integrated.
 add_executable(RearSilverAvatarDiagnostic18 WIN32 EXCLUDE_FROM_ALL src/sdl_diagnostic.cpp)
