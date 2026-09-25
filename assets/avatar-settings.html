@@ -21,7 +21,8 @@ button:hover{border-color:var(--cyan);background:#063847}
 .panel h2{font-size:20px;margin:0 0 6px}.intro{margin-bottom:18px}
 .page[hidden]{display:none}
 .cards{display:grid;grid-template-columns:repeat(2,minmax(260px,1fr));gap:12px}
-.avatar-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.55fr);gap:14px;align-items:start}
+.settings-layout{display:grid;grid-template-columns:minmax(0,1.45fr) minmax(300px,.55fr);gap:14px;align-items:start}
+.page-column{min-width:0}
 .avatar-controls{display:grid;gap:12px}
 .card{min-height:170px;background:var(--raised);border:1px solid #344257;border-radius:12px;padding:18px}
 .card h3{font-size:15px;margin:0 0 8px}.card p{color:var(--muted);line-height:1.55;margin:0}
@@ -46,7 +47,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .preview-footer>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .state-pill{border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;padding:5px 8px;text-transform:uppercase}
 .tag{display:inline-block;margin-top:16px;border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;letter-spacing:.04em;padding:5px 8px;text-transform:uppercase}
-@media(max-width:920px){.avatar-layout{grid-template-columns:1fr}.preview-card{position:static;grid-row:1}.preview-stage{max-height:340px}}
+@media(max-width:920px){.settings-layout{grid-template-columns:1fr}.preview-card{position:static;grid-row:1}.preview-stage{max-height:340px}}
 @media(max-width:760px){.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
 </style>
 </head>
@@ -59,13 +60,14 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
   <nav class="tabs" aria-label="Avatar Settings">
     <button class="tab active" data-page="avatar">Avatar</button>
     <button class="tab" data-page="microphone">Microphone</button>
+    <button class="tab" data-page="blink">Blink</button>
     <button class="tab" data-page="output">Output</button>
     <button class="tab" data-page="general">General</button>
   </nav>
+  <div class="settings-layout"><div class="page-column">
   <section class="panel page" data-page="avatar">
     <h2>Avatar</h2>
     <p class="intro">Choose the primary image shown in the renderer and sent to your output.</p>
-    <div class="avatar-layout">
       <div class="avatar-controls">
         <article class="card">
         <h3>Primary image</h3>
@@ -84,13 +86,6 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
         </div>
         </article>
       </div>
-      <aside class="card preview-card">
-        <h3>Avatar preview</h3>
-        <p>Preview the selected image state locally without adding Settings to the OBS output.</p>
-        <div class="preview-stage"><img id="avatar-preview" alt="Selected avatar preview"><div class="preview-empty" id="preview-empty">Choose a primary image to begin.</div></div>
-        <div class="preview-footer"><span id="preview-file">Built-in placeholder</span><span class="state-pill" id="preview-state">Primary</span></div>
-      </aside>
-    </div>
   </section>
   <section class="panel page" data-page="microphone" hidden>
     <h2>Microphone</h2>
@@ -114,8 +109,25 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
       <div class="preview-footer"><span>Live avatar state</span><span class="state-pill" id="microphone-reaction-state">Primary</span></div>
     </article>
   </section>
+  <section class="panel page" data-page="blink" hidden>
+    <h2>Blink</h2>
+    <p class="intro">Choose optional closed-eye images and configure natural random blinking.</p>
+    <div class="avatar-controls">
+      <article class="card"><h3>Primary blink image</h3><p>Used when the resting avatar blinks. The primary image remains visible when this is not set.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="primary-blink-file">No blink image</div><div class="status" id="primary-blink-status">Optional</div></div><button id="choose-primary-blink">Choose PNG…</button></div></article>
+      <article class="card"><h3>Reaction blink image</h3><p>Used when the reacting avatar blinks. The reaction image remains visible when this is not set.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="reaction-blink-file">No blink image</div><div class="status" id="reaction-blink-status">Optional</div></div><button id="choose-reaction-blink">Choose PNG…</button></div></article>
+      <article class="card"><div class="range-heading"><h3 style="margin:0">Blink timing</h3><label style="margin:0"><input id="blink-enabled" type="checkbox" checked> Enabled</label></div><div class="control-grid"><div><div class="range-heading"><span>Minimum interval</span><strong id="blink-minimum-value">3.0 s</strong></div><input id="blink-minimum" type="range" min="250" max="30000" step="250" value="3000"></div><div><div class="range-heading"><span>Maximum interval</span><strong id="blink-maximum-value">6.0 s</strong></div><input id="blink-maximum" type="range" min="250" max="30000" step="250" value="6000"></div><div><div class="range-heading"><span>Blink duration</span><strong id="blink-duration-value">150 ms</strong></div><input id="blink-duration" type="range" min="50" max="1000" step="25" value="150"></div></div></article>
+    </div>
+  </section>
   <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Output controls will be added in a later approved stage.</p></section>
   <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">General controls will be added in a later approved stage.</p></section>
+  </div>
+  <aside class="card preview-card">
+    <h3>Avatar preview</h3>
+    <p>Preview the selected image state locally without adding Settings to the OBS output.</p>
+    <div class="preview-stage"><img id="avatar-preview" alt="Selected avatar preview"><div class="preview-empty" id="preview-empty">Choose a primary image to begin.</div></div>
+    <div class="preview-footer"><span id="preview-file">Built-in placeholder</span><span class="state-pill" id="preview-state">Primary</span></div>
+  </aside>
+  </div>
 </main>
 <script>
 document.getElementById('close').onclick=()=>window.chrome.webview.postMessage('close-settings');
@@ -133,6 +145,9 @@ let manualReactionPreview=false;
 let microphoneReaction=false;
 let primaryPreviewUrl='';
 let reactionPreviewUrl='';
+let primaryBlinkPreviewUrl='';
+let reactionBlinkPreviewUrl='';
+let blinking=false;
 const previewReaction=document.getElementById('preview-reaction');
 const avatarPreview=document.getElementById('avatar-preview');
 const microphoneDevice=document.getElementById('microphone-device');
@@ -143,14 +158,16 @@ avatarPreview.onerror=()=>{
 };
 function updatePreview(){
   const reactionPreview=manualReactionPreview||microphoneReaction;
-  const url=reactionPreview?reactionPreviewUrl:primaryPreviewUrl;
-  const file=document.getElementById(reactionPreview?'reaction-file':'avatar-file').textContent;
+  const blinkUrl=reactionPreview?reactionBlinkPreviewUrl:primaryBlinkPreviewUrl;
+  const useBlink=blinking&&Boolean(blinkUrl);
+  const url=useBlink?blinkUrl:(reactionPreview?reactionPreviewUrl:primaryPreviewUrl);
+  const file=document.getElementById(useBlink?(reactionPreview?'reaction-blink-file':'primary-blink-file'):(reactionPreview?'reaction-file':'avatar-file')).textContent;
   avatarPreview.style.display=url?'block':'none';
   document.getElementById('preview-empty').style.display=url?'none':'block';
   if(url)avatarPreview.src=url;
   else avatarPreview.removeAttribute('src');
   document.getElementById('preview-file').textContent=file;
-  document.getElementById('preview-state').textContent=reactionPreview?'Reaction':'Primary';
+  document.getElementById('preview-state').textContent=`${reactionPreview?'Reaction':'Primary'}${useBlink?' blink':''}`;
 }
 document.getElementById('choose-reaction').onclick=()=>{
   document.getElementById('reaction-status').textContent='Waiting for a PNG selection…';
@@ -178,6 +195,25 @@ thresholdControl.oninput=updateThresholdUi;
 thresholdControl.onchange=()=>window.chrome.webview.postMessage(`reaction-threshold\t${thresholdControl.value}`);
 releaseControl.oninput=()=>document.getElementById('release-value').textContent=`${releaseControl.value} ms`;
 releaseControl.onchange=()=>window.chrome.webview.postMessage(`release-delay\t${releaseControl.value}`);
+document.getElementById('choose-primary-blink').onclick=()=>window.chrome.webview.postMessage('choose-primary-blink');
+document.getElementById('choose-reaction-blink').onclick=()=>window.chrome.webview.postMessage('choose-reaction-blink');
+const blinkEnabled=document.getElementById('blink-enabled');
+const blinkMinimum=document.getElementById('blink-minimum');
+const blinkMaximum=document.getElementById('blink-maximum');
+const blinkDuration=document.getElementById('blink-duration');
+function seconds(value){return `${(Number(value)/1000).toFixed(2).replace(/0+$/,'').replace(/\.$/,'')} s`}
+function updateBlinkUi(){
+  document.getElementById('blink-minimum-value').textContent=seconds(blinkMinimum.value);
+  document.getElementById('blink-maximum-value').textContent=seconds(blinkMaximum.value);
+  document.getElementById('blink-duration-value').textContent=`${blinkDuration.value} ms`;
+}
+blinkEnabled.onchange=()=>window.chrome.webview.postMessage(`blink-enabled\t${blinkEnabled.checked?'1':'0'}`);
+blinkMinimum.oninput=updateBlinkUi;
+blinkMaximum.oninput=updateBlinkUi;
+blinkDuration.oninput=updateBlinkUi;
+blinkMinimum.onchange=()=>window.chrome.webview.postMessage(`blink-minimum\t${blinkMinimum.value}`);
+blinkMaximum.onchange=()=>window.chrome.webview.postMessage(`blink-maximum\t${blinkMaximum.value}`);
+blinkDuration.onchange=()=>window.chrome.webview.postMessage(`blink-duration\t${blinkDuration.value}`);
 microphoneDevice.onchange=()=>{
   document.getElementById('microphone-status').textContent='Connecting…';
   window.chrome.webview.postMessage(`select-microphone\t${microphoneDevice.value}`);
@@ -291,6 +327,52 @@ window.chrome.webview.addEventListener('message',event=>{
   }else if(type==='microphone-reaction-off'){
     microphoneReaction=false;
     document.getElementById('microphone-reaction-state').textContent='Primary';
+  }else if(type==='primary-blink-image-selected'||type==='reaction-blink-image-selected'){
+    const reaction=type.startsWith('reaction');
+    document.getElementById(reaction?'reaction-blink-file':'primary-blink-file').textContent=value;
+    document.getElementById(reaction?'reaction-blink-status':'primary-blink-status').textContent='Preparing the image…';
+  }else if(type==='primary-blink-image-current'||type==='reaction-blink-image-current'){
+    const reaction=type.startsWith('reaction');
+    document.getElementById(reaction?'reaction-blink-file':'primary-blink-file').textContent=value;
+    document.getElementById(reaction?'reaction-blink-status':'primary-blink-status').textContent='Loaded from your saved settings.';
+  }else if(type==='primary-blink-image-empty'||type==='reaction-blink-image-empty'){
+    const reaction=type.startsWith('reaction');
+    document.getElementById(reaction?'reaction-blink-file':'primary-blink-file').textContent='No blink image';
+    document.getElementById(reaction?'reaction-blink-status':'primary-blink-status').textContent='Optional';
+    if(reaction)reactionBlinkPreviewUrl='';else primaryBlinkPreviewUrl='';
+  }else if(type==='primary-blink-image-unavailable'||type==='reaction-blink-image-unavailable'){
+    const reaction=type.startsWith('reaction');
+    document.getElementById(reaction?'reaction-blink-file':'primary-blink-file').textContent=value;
+    document.getElementById(reaction?'reaction-blink-status':'primary-blink-status').textContent='Saved file unavailable; using open-eye fallback.';
+    if(reaction)reactionBlinkPreviewUrl='';else primaryBlinkPreviewUrl='';
+  }else if(type==='primary-blink-image-uploaded'||type==='reaction-blink-image-uploaded'){
+    const reaction=type.startsWith('reaction');
+    document.getElementById(reaction?'reaction-blink-status':'primary-blink-status').textContent='Loaded and ready.';
+  }else if(type.includes('blink-image-cancelled')){
+    const reaction=type.startsWith('reaction');
+    document.getElementById(reaction?'reaction-blink-status':'primary-blink-status').textContent='Selection cancelled; current image unchanged.';
+  }else if(type.includes('blink-image-error')||type.includes('blink-image-upload-error')){
+    const reaction=type.startsWith('reaction');
+    document.getElementById(reaction?'reaction-blink-status':'primary-blink-status').textContent='Could not load this image; current image unchanged.';
+  }else if(type==='primary-blink-preview-image'){
+    primaryBlinkPreviewUrl=`https://preview.rearsilver-avatar.test/${value}`;
+  }else if(type==='reaction-blink-preview-image'){
+    reactionBlinkPreviewUrl=`https://preview.rearsilver-avatar.test/${value}`;
+  }else if(type==='blink-state-on'){
+    blinking=true;
+  }else if(type==='blink-state-off'){
+    blinking=false;
+  }else if(type==='blink-enabled'){
+    blinkEnabled.checked=value==='1';
+  }else if(type==='blink-minimum'){
+    blinkMinimum.value=value;
+    updateBlinkUi();
+  }else if(type==='blink-maximum'){
+    blinkMaximum.value=value;
+    updateBlinkUi();
+  }else if(type==='blink-duration'){
+    blinkDuration.value=value;
+    updateBlinkUi();
   }
   updatePreview();
 });

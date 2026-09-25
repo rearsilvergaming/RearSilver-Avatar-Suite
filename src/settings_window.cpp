@@ -153,6 +153,30 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsReleaseDelayMessage,
                                                              wcstoul(message + 14, nullptr, 10), 0);
+                                            else if (wcscmp(message, L"choose-primary-blink") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsChoosePrimaryBlinkMessage,
+                                                             0, reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcscmp(message, L"choose-reaction-blink") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsChooseReactionBlinkMessage,
+                                                             0, reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcsncmp(message, L"blink-enabled\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBlinkEnabledMessage,
+                                                             wcscmp(message + 14, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"blink-minimum\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBlinkMinimumMessage,
+                                                             wcstoul(message + 14, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"blink-maximum\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBlinkMaximumMessage,
+                                                             wcstoul(message + 14, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"blink-duration\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBlinkDurationMessage,
+                                                             wcstoul(message + 15, nullptr, 10), 0);
                                             CoTaskMemFree(message);
                                         }
                                         return S_OK;
@@ -215,16 +239,22 @@ void postAvatarSettingsMessage(const std::wstring &message)
         g_webView->PostWebMessageAsString(message.c_str());
 }
 
-void setAvatarSettingsPreviewImage(bool reaction, const std::wstring &path)
+void setAvatarSettingsPreviewImage(unsigned slot, const std::wstring &path)
 {
     if (!g_webView || path.empty())
         return;
-    const wchar_t *fileName = reaction ? L"reaction.png" : L"primary.png";
+    const wchar_t *fileName = slot == 1 ? L"reaction.png"
+                              : slot == 2 ? L"primary-blink.png"
+                              : slot == 3 ? L"reaction-blink.png"
+                                          : L"primary.png";
     const std::wstring cachedPath = previewDirectory() + L"\\" + fileName;
     if (!CopyFileW(path.c_str(), cachedPath.c_str(), FALSE))
         return;
-    postAvatarSettingsMessage(std::wstring(reaction ? L"reaction-preview-image\t"
-                                                     : L"primary-preview-image\t") +
+    const wchar_t *message = slot == 1 ? L"reaction-preview-image\t"
+                             : slot == 2 ? L"primary-blink-preview-image\t"
+                             : slot == 3 ? L"reaction-blink-preview-image\t"
+                                         : L"primary-preview-image\t";
+    postAvatarSettingsMessage(std::wstring(message) +
                               fileName + L"?revision=" + std::to_wstring(GetTickCount64()));
 }
 

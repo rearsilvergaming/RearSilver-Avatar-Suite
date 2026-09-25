@@ -34,6 +34,7 @@ constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar";
 constexpr UINT kRenderFailureMessage = WM_APP + 1;
 constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
 constexpr UINT kImageUploadSuccessMessage = WM_APP + 3;
+constexpr UINT kBlinkStateMessage = WM_APP + 4;
 constexpr UINT kOutputWidth = 1920;
 constexpr UINT kOutputHeight = 1080;
 constexpr UINT kOutputUiDpi = 192;
@@ -54,6 +55,8 @@ HANDLE g_logFile = INVALID_HANDLE_VALUE;
 enum class ImageSlot : WPARAM {
     Primary = 0,
     Reaction = 1,
+    PrimaryBlink = 2,
+    ReactionBlink = 3,
 };
 
 struct PendingImage {
@@ -72,6 +75,10 @@ std::wstring g_primaryImagePath;
 bool g_primaryImageLoaded = false;
 std::wstring g_reactionImagePath;
 bool g_reactionImageLoaded = false;
+std::wstring g_primaryBlinkImagePath;
+bool g_primaryBlinkImageLoaded = false;
+std::wstring g_reactionBlinkImagePath;
+bool g_reactionBlinkImageLoaded = false;
 std::atomic<bool> g_previewReaction{false};
 std::atomic<bool> g_microphoneReaction{false};
 std::atomic<bool> g_reactionAvailable{false};
@@ -82,6 +89,10 @@ std::unique_ptr<AudioInputMonitor> g_audioMonitor;
 std::wstring g_selectedMicrophoneId;
 std::atomic<int> g_audioMonitorStatus{0};
 std::atomic<unsigned> g_audioMonitorLevel{0};
+std::atomic<bool> g_blinkEnabled{true};
+std::atomic<unsigned> g_blinkMinimumMs{3000};
+std::atomic<unsigned> g_blinkMaximumMs{6000};
+std::atomic<unsigned> g_blinkDurationMs{150};
 
 struct RectF {
     float x = 0;
@@ -203,7 +214,7 @@ void sendPrimaryImageState()
     if (g_primaryImagePath.empty()) {
         postAvatarSettingsMessage(L"avatar-image-default");
     } else if (g_primaryImageLoaded) {
-        setAvatarSettingsPreviewImage(false, g_primaryImagePath);
+        setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Primary), g_primaryImagePath);
         postAvatarSettingsMessage(L"avatar-image-current\t" + fileNameFromPath(g_primaryImagePath));
     } else {
         postAvatarSettingsMessage(L"avatar-image-unavailable\t" + fileNameFromPath(g_primaryImagePath));
@@ -216,11 +227,46 @@ void sendReactionImageState()
     if (g_reactionImagePath.empty()) {
         postAvatarSettingsMessage(L"reaction-image-empty");
     } else if (g_reactionImageLoaded) {
-        setAvatarSettingsPreviewImage(true, g_reactionImagePath);
+        setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction), g_reactionImagePath);
         postAvatarSettingsMessage(L"reaction-image-current\t" + fileNameFromPath(g_reactionImagePath));
     } else {
         postAvatarSettingsMessage(L"reaction-image-unavailable\t" + fileNameFromPath(g_reactionImagePath));
     }
+}
+
+void sendBlinkImageState(ImageSlot slot)
+{
+    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+    const bool reaction = slot == ImageSlot::ReactionBlink;
+    const std::wstring &path = reaction ? g_reactionBlinkImagePath : g_primaryBlinkImagePath;
+    const bool loaded = reaction ? g_reactionBlinkImageLoaded : g_primaryBlinkImageLoaded;
+    const wchar_t *prefix = reaction ? L"reaction-blink-image" : L"primary-blink-image";
+    if (path.empty()) {
+        postAvatarSettingsMessage(std::wstring(prefix) + L"-empty");
+    } else if (loaded) {
+        setAvatarSettingsPreviewImage(static_cast<unsigned>(slot), path);
+        postAvatarSettingsMessage(std::wstring(prefix) + L"-current\t" + fileNameFromPath(path));
+    } else {
+        postAvatarSettingsMessage(std::wstring(prefix) + L"-unavailable\t" + fileNameFromPath(path));
+    }
+}
+
+const wchar_t *imageMessagePrefix(ImageSlot slot)
+{
+    switch (slot) {
+    case ImageSlot::Reaction: return L"reaction-image";
+    case ImageSlot::PrimaryBlink: return L"primary-blink-image";
+    case ImageSlot::ReactionBlink: return L"reaction-blink-image";
+    default: return L"avatar-image";
+    }
+}
+
+void sendBlinkSettings()
+{
+    postAvatarSettingsMessage(g_blinkEnabled.load() ? L"blink-enabled\t1" : L"blink-enabled\t0");
+    postAvatarSettingsMessage(L"blink-minimum\t" + std::to_wstring(g_blinkMinimumMs.load()));
+    postAvatarSettingsMessage(L"blink-maximum\t" + std::to_wstring(g_blinkMaximumMs.load()));
+    postAvatarSettingsMessage(L"blink-duration\t" + std::to_wstring(g_blinkDurationMs.load()));
 }
 
 void sendMicrophoneState()
@@ -475,22 +521,16 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
             }
             logMessage(L"PNG decoded and queued for render-thread upload: " + std::wstring(path));
             const wchar_t *fileName = wcsrchr(path, L'\\');
-            postAvatarSettingsMessage(std::wstring(slot == ImageSlot::Reaction
-                                                        ? L"reaction-image-selected\t"
-                                                        : L"avatar-image-selected\t") +
+            postAvatarSettingsMessage(std::wstring(imageMessagePrefix(slot)) + L"-selected\t" +
                                       (fileName ? fileName + 1 : path));
         } catch (...) {
-            postAvatarSettingsMessage(slot == ImageSlot::Reaction
-                                          ? L"reaction-image-error"
-                                          : L"avatar-image-error");
+            postAvatarSettingsMessage(std::wstring(imageMessagePrefix(slot)) + L"-error");
             MessageBoxW(picker.hwndOwner,
                         L"Could not decode this image. Choose a valid PNG no larger than 8192 × 8192 pixels. The current avatar is unchanged.",
                         L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
         }
     } else if (CommDlgExtendedError() == 0) {
-        postAvatarSettingsMessage(slot == ImageSlot::Reaction
-                                      ? L"reaction-image-cancelled"
-                                      : L"avatar-image-cancelled");
+        postAvatarSettingsMessage(std::wstring(imageMessagePrefix(slot)) + L"-cancelled");
     }
     g_dialogOpen.store(false);
 }
@@ -627,6 +667,24 @@ public:
                     g_reactionImageLoaded = true;
                 }
                 saveSetting(L"ReactionImage", pending.path);
+            } else if (pending.slot == ImageSlot::PrimaryBlink) {
+                primaryBlinkAvatar_ = std::move(replacement);
+                primaryBlinkAvatarLoaded_ = true;
+                {
+                    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                    g_primaryBlinkImagePath = pending.path;
+                    g_primaryBlinkImageLoaded = true;
+                }
+                saveSetting(L"PrimaryBlinkImage", pending.path);
+            } else if (pending.slot == ImageSlot::ReactionBlink) {
+                reactionBlinkAvatar_ = std::move(replacement);
+                reactionBlinkAvatarLoaded_ = true;
+                {
+                    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                    g_reactionBlinkImagePath = pending.path;
+                    g_reactionBlinkImageLoaded = true;
+                }
+                saveSetting(L"ReactionBlinkImage", pending.path);
             } else {
                 primaryAvatar_ = std::move(replacement);
                 {
@@ -643,9 +701,42 @@ public:
         }
     }
 
+    unsigned nextBlinkDelay()
+    {
+        blinkRandomState_ = blinkRandomState_ * 1664525u + 1013904223u;
+        const unsigned minimum = g_blinkMinimumMs.load();
+        const unsigned maximum = std::max(minimum, g_blinkMaximumMs.load());
+        return minimum + (maximum > minimum ? blinkRandomState_ % (maximum - minimum + 1) : 0);
+    }
+
+    void updateBlinkState(ULONGLONG now)
+    {
+        if (!g_blinkEnabled.load()) {
+            if (blinking_) {
+                blinking_ = false;
+                PostMessageW(window_, kBlinkStateMessage, FALSE, 0);
+            }
+            nextBlinkAt_ = 0;
+            return;
+        }
+        if (nextBlinkAt_ == 0)
+            nextBlinkAt_ = now + nextBlinkDelay();
+        if (!blinking_ && now >= nextBlinkAt_) {
+            blinking_ = true;
+            blinkEndsAt_ = now + g_blinkDurationMs.load();
+            PostMessageW(window_, kBlinkStateMessage, TRUE, 0);
+        } else if (blinking_ && now >= blinkEndsAt_) {
+            blinking_ = false;
+            nextBlinkAt_ = now + nextBlinkDelay();
+            PostMessageW(window_, kBlinkStateMessage, FALSE, 0);
+        }
+    }
+
     void render()
     {
         uploadPendingImage();
+        const ULONGLONG now = GetTickCount64();
+        updateBlinkState(now);
 
         float clear[4] = {0, 0, 0, 0};
         const int background = g_backgroundMode.load();
@@ -667,18 +758,23 @@ public:
 
         const float maxWidth = static_cast<float>(width_) * 0.68f;
         const float maxHeight = static_cast<float>(height_) * 0.68f;
-        const TextureAsset &activeAvatar =
-            (g_previewReaction.load() || g_microphoneReaction.load()) && reactionAvatarLoaded_
-                ? reactionAvatar_
-                : primaryAvatar_;
-        const float scale = std::min(maxWidth / activeAvatar.width, maxHeight / activeAvatar.height);
-        const float avatarWidth = activeAvatar.width * scale;
-        const float avatarHeight = activeAvatar.height * scale;
+        const bool reactionState =
+            (g_previewReaction.load() || g_microphoneReaction.load()) && reactionAvatarLoaded_;
+        const TextureAsset *activeAvatar = reactionState ? &reactionAvatar_ : &primaryAvatar_;
+        if (blinking_) {
+            if (reactionState && reactionBlinkAvatarLoaded_)
+                activeAvatar = &reactionBlinkAvatar_;
+            else if (!reactionState && primaryBlinkAvatarLoaded_)
+                activeAvatar = &primaryBlinkAvatar_;
+        }
+        const float scale = std::min(maxWidth / activeAvatar->width, maxHeight / activeAvatar->height);
+        const float avatarWidth = activeAvatar->width * scale;
+        const float avatarHeight = activeAvatar->height * scale;
         const float bob = g_motionEnabled.load()
                               ? std::sin(static_cast<float>(GetTickCount64()) / 500.0f) *
                                     std::max(3.0f, static_cast<float>(height_) * 0.015f)
                               : 0.0f;
-        draw(activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f,
+        draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f,
              (static_cast<float>(height_) - avatarHeight) * 0.5f + bob, avatarWidth,
              avatarHeight);
 
@@ -963,7 +1059,15 @@ private:
     ComPtr<ID3D11BlendState> blend_;
     TextureAsset primaryAvatar_;
     TextureAsset reactionAvatar_;
+    TextureAsset primaryBlinkAvatar_;
+    TextureAsset reactionBlinkAvatar_;
     bool reactionAvatarLoaded_ = false;
+    bool primaryBlinkAvatarLoaded_ = false;
+    bool reactionBlinkAvatarLoaded_ = false;
+    bool blinking_ = false;
+    ULONGLONG nextBlinkAt_ = 0;
+    ULONGLONG blinkEndsAt_ = 0;
+    unsigned blinkRandomState_ = static_cast<unsigned>(GetTickCount());
     TextureAsset control_;
     TextureAsset border_;
     TextureAsset accent_;
@@ -1057,6 +1161,12 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsChooseReactionPngMessage:
         openPngPicker(reinterpret_cast<HWND>(lParam), ImageSlot::Reaction);
         return 0;
+    case kAvatarSettingsChoosePrimaryBlinkMessage:
+        openPngPicker(reinterpret_cast<HWND>(lParam), ImageSlot::PrimaryBlink);
+        return 0;
+    case kAvatarSettingsChooseReactionBlinkMessage:
+        openPngPicker(reinterpret_cast<HWND>(lParam), ImageSlot::ReactionBlink);
+        return 0;
     case kAvatarSettingsPreviewReactionMessage:
         g_previewReaction.store(wParam != FALSE);
         postAvatarSettingsMessage(wParam != FALSE ? L"reaction-preview-on" : L"reaction-preview-off");
@@ -1064,7 +1174,10 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsReadyMessage:
         sendPrimaryImageState();
         sendReactionImageState();
+        sendBlinkImageState(ImageSlot::PrimaryBlink);
+        sendBlinkImageState(ImageSlot::ReactionBlink);
         sendMicrophoneState();
+        sendBlinkSettings();
         postAvatarSettingsMessage(L"reaction-preview-off");
         return 0;
     case kAvatarSettingsSelectMicrophoneMessage: {
@@ -1091,6 +1204,34 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         g_releaseDelayMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 5000));
         saveSetting(L"ReleaseDelayMs", std::to_wstring(g_releaseDelayMs.load()));
         return 0;
+    case kAvatarSettingsBlinkEnabledMessage:
+        g_blinkEnabled.store(wParam != FALSE);
+        saveSetting(L"BlinkEnabled", wParam != FALSE ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsBlinkMinimumMessage: {
+        const unsigned value = std::clamp<unsigned>(static_cast<unsigned>(wParam), 250, 30000);
+        g_blinkMinimumMs.store(value);
+        if (g_blinkMaximumMs.load() < value)
+            g_blinkMaximumMs.store(value);
+        saveSetting(L"BlinkMinimumMs", std::to_wstring(value));
+        saveSetting(L"BlinkMaximumMs", std::to_wstring(g_blinkMaximumMs.load()));
+        sendBlinkSettings();
+        return 0;
+    }
+    case kAvatarSettingsBlinkMaximumMessage: {
+        const unsigned value = std::clamp<unsigned>(static_cast<unsigned>(wParam), 250, 30000);
+        g_blinkMaximumMs.store(value);
+        if (g_blinkMinimumMs.load() > value)
+            g_blinkMinimumMs.store(value);
+        saveSetting(L"BlinkMaximumMs", std::to_wstring(value));
+        saveSetting(L"BlinkMinimumMs", std::to_wstring(g_blinkMinimumMs.load()));
+        sendBlinkSettings();
+        return 0;
+    }
+    case kAvatarSettingsBlinkDurationMessage:
+        g_blinkDurationMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 50, 1000));
+        saveSetting(L"BlinkDurationMs", std::to_wstring(g_blinkDurationMs.load()));
+        return 0;
     case kAudioMonitorLevelMessage:
         g_audioMonitorLevel.store(static_cast<unsigned>(wParam));
         processMicrophoneLevel(static_cast<unsigned>(wParam));
@@ -1105,10 +1246,18 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (wParam != 1)
             setMicrophoneReaction(false);
         return 0;
+    case kBlinkStateMessage:
+        postAvatarSettingsMessage(wParam != FALSE ? L"blink-state-on" : L"blink-state-off");
+        return 0;
     case kImageUploadFailureMessage:
         if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
             sendReactionImageState();
             postAvatarSettingsMessage(L"reaction-image-upload-error");
+        } else if (static_cast<ImageSlot>(wParam) == ImageSlot::PrimaryBlink ||
+                   static_cast<ImageSlot>(wParam) == ImageSlot::ReactionBlink) {
+            const ImageSlot slot = static_cast<ImageSlot>(wParam);
+            sendBlinkImageState(slot);
+            postAvatarSettingsMessage(std::wstring(imageMessagePrefix(slot)) + L"-upload-error");
         } else {
             sendPrimaryImageState();
             postAvatarSettingsMessage(L"avatar-image-upload-error");
@@ -1120,14 +1269,19 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kImageUploadSuccessMessage:
         if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
-            setAvatarSettingsPreviewImage(true, g_reactionImagePath);
+            setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction), g_reactionImagePath);
+        } else if (static_cast<ImageSlot>(wParam) == ImageSlot::PrimaryBlink) {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            setAvatarSettingsPreviewImage(2, g_primaryBlinkImagePath);
+        } else if (static_cast<ImageSlot>(wParam) == ImageSlot::ReactionBlink) {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            setAvatarSettingsPreviewImage(3, g_reactionBlinkImagePath);
         } else {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
-            setAvatarSettingsPreviewImage(false, g_primaryImagePath);
+            setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Primary), g_primaryImagePath);
         }
-        postAvatarSettingsMessage(static_cast<ImageSlot>(wParam) == ImageSlot::Reaction
-                                      ? L"reaction-image-uploaded"
-                                      : L"avatar-image-uploaded");
+        postAvatarSettingsMessage(std::wstring(imageMessagePrefix(static_cast<ImageSlot>(wParam))) +
+                                  L"-uploaded");
         return 0;
     case kRenderFailureMessage: {
         g_running.store(false);
@@ -1228,6 +1382,33 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         }
     }
 
+    auto queueSavedBlinkImage = [](const wchar_t *settingKey, ImageSlot slot,
+                                   std::wstring &statePath, bool &stateLoaded) {
+        const std::wstring savedPath = loadSetting(settingKey);
+        if (savedPath.empty())
+            return;
+        {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            statePath = savedPath;
+            stateLoaded = false;
+        }
+        try {
+            PendingImage decoded;
+            if (!decodePng(savedPath.c_str(), decoded))
+                throw E_INVALIDARG;
+            decoded.slot = slot;
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(decoded));
+            logMessage(L"Saved blink avatar queued for startup restore: " + savedPath);
+        } catch (...) {
+            logMessage(L"Saved blink avatar is unavailable: " + savedPath);
+        }
+    };
+    queueSavedBlinkImage(L"PrimaryBlinkImage", ImageSlot::PrimaryBlink,
+                         g_primaryBlinkImagePath, g_primaryBlinkImageLoaded);
+    queueSavedBlinkImage(L"ReactionBlinkImage", ImageSlot::ReactionBlink,
+                         g_reactionBlinkImagePath, g_reactionBlinkImageLoaded);
+
     const std::wstring savedMicrophone = loadSetting(L"MicrophoneDevice");
     g_selectedMicrophoneId = savedMicrophone.empty() || savedMicrophone == L"@default"
                                  ? L""
@@ -1242,6 +1423,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     if (!savedRelease.empty())
         g_releaseDelayMs.store(std::clamp<unsigned>(wcstoul(savedRelease.c_str(), nullptr, 10),
                                                     0, 5000));
+    const std::wstring savedBlinkEnabled = loadSetting(L"BlinkEnabled");
+    if (!savedBlinkEnabled.empty())
+        g_blinkEnabled.store(savedBlinkEnabled != L"0");
+    const std::wstring savedBlinkMinimum = loadSetting(L"BlinkMinimumMs");
+    if (!savedBlinkMinimum.empty())
+        g_blinkMinimumMs.store(std::clamp<unsigned>(wcstoul(savedBlinkMinimum.c_str(), nullptr, 10),
+                                                    250, 30000));
+    const std::wstring savedBlinkMaximum = loadSetting(L"BlinkMaximumMs");
+    if (!savedBlinkMaximum.empty())
+        g_blinkMaximumMs.store(std::clamp<unsigned>(wcstoul(savedBlinkMaximum.c_str(), nullptr, 10),
+                                                    g_blinkMinimumMs.load(), 30000));
+    const std::wstring savedBlinkDuration = loadSetting(L"BlinkDurationMs");
+    if (!savedBlinkDuration.empty())
+        g_blinkDurationMs.store(std::clamp<unsigned>(wcstoul(savedBlinkDuration.c_str(), nullptr, 10),
+                                                     50, 1000));
     g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
 
     g_running.store(true);
