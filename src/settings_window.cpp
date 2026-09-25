@@ -112,6 +112,9 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChoosePngMessage,
                                                              0, reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcscmp(message, L"avatar-settings-ready") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             CoTaskMemFree(message);
                                         }
                                         return S_OK;

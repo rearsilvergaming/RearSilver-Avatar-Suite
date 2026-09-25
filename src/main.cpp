@@ -59,6 +59,10 @@ std::mutex g_pendingImageMutex;
 PendingImage g_pendingImage;
 bool g_hasPendingImage = false;
 
+std::mutex g_primaryImageStateMutex;
+std::wstring g_primaryImagePath;
+bool g_primaryImageLoaded = false;
+
 struct RectF {
     float x = 0;
     float y = 0;
@@ -119,6 +123,70 @@ void startLog()
     g_logFile = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     logMessage(L"RearSilver Avatar first reconstructed baseline starting");
+}
+
+std::wstring settingsFilePath()
+{
+    wchar_t localAppData[MAX_PATH]{};
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, MAX_PATH) == 0)
+        return {};
+    const std::wstring directory = std::wstring(localAppData) + L"\\RearSilver Avatar";
+    CreateDirectoryW(directory.c_str(), nullptr);
+    return directory + L"\\settings.ini";
+}
+
+void ensureUnicodeSettingsFile(const std::wstring &path)
+{
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return;
+    LARGE_INTEGER size{};
+    if (GetFileSizeEx(file, &size) && size.QuadPart == 0) {
+        const wchar_t bom = 0xfeff;
+        DWORD written = 0;
+        WriteFile(file, &bom, sizeof(bom), &written, nullptr);
+    }
+    CloseHandle(file);
+}
+
+std::wstring loadSavedPrimaryImagePath()
+{
+    const std::wstring path = settingsFilePath();
+    if (path.empty())
+        return {};
+    wchar_t value[32768]{};
+    GetPrivateProfileStringW(L"Avatar", L"PrimaryImage", L"", value,
+                             static_cast<DWORD>(std::size(value)), path.c_str());
+    return value;
+}
+
+void savePrimaryImagePath(const std::wstring &imagePath)
+{
+    const std::wstring path = settingsFilePath();
+    if (path.empty())
+        return;
+    ensureUnicodeSettingsFile(path);
+    WritePrivateProfileStringW(L"Avatar", L"PrimaryImage", imagePath.c_str(), path.c_str());
+}
+
+std::wstring fileNameFromPath(const std::wstring &path)
+{
+    const size_t separator = path.find_last_of(L"\\/");
+    return separator == std::wstring::npos ? path : path.substr(separator + 1);
+}
+
+void sendPrimaryImageState()
+{
+    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+    if (g_primaryImagePath.empty()) {
+        postAvatarSettingsMessage(L"avatar-image-default");
+    } else if (g_primaryImageLoaded) {
+        postAvatarSettingsMessage(L"avatar-image-current\t" + fileNameFromPath(g_primaryImagePath));
+    } else {
+        postAvatarSettingsMessage(L"avatar-image-unavailable\t" + fileNameFromPath(g_primaryImagePath));
+    }
 }
 
 void check(HRESULT result)
@@ -468,6 +536,12 @@ public:
         try {
             TextureAsset replacement = createTexture(pending.rgba.data(), pending.width, pending.height);
             avatar_ = std::move(replacement);
+            {
+                std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                g_primaryImagePath = pending.path;
+                g_primaryImageLoaded = true;
+            }
+            savePrimaryImagePath(pending.path);
             logMessage(L"Avatar atomically replaced after GPU upload: " + pending.path);
             PostMessageW(window_, kImageUploadSuccessMessage, 0, 0);
         } catch (...) {
@@ -880,7 +954,11 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsChoosePngMessage:
         openPngPicker(reinterpret_cast<HWND>(lParam));
         return 0;
+    case kAvatarSettingsReadyMessage:
+        sendPrimaryImageState();
+        return 0;
     case kImageUploadFailureMessage:
+        sendPrimaryImageState();
         postAvatarSettingsMessage(L"avatar-image-upload-error");
         MessageBoxW(window,
                     L"The PNG decoded successfully, but its GPU texture could not be created. The current avatar is unchanged.",
@@ -948,6 +1026,27 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 
     ShowWindow(g_mainWindow, showCommand);
     UpdateWindow(g_mainWindow);
+
+    const std::wstring savedPrimaryImage = loadSavedPrimaryImagePath();
+    if (!savedPrimaryImage.empty()) {
+        {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            g_primaryImagePath = savedPrimaryImage;
+            g_primaryImageLoaded = false;
+        }
+        try {
+            PendingImage decoded;
+            if (!decodePng(savedPrimaryImage.c_str(), decoded))
+                throw E_INVALIDARG;
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImage = std::move(decoded);
+            g_hasPendingImage = true;
+            logMessage(L"Saved primary avatar queued for startup restore: " + savedPrimaryImage);
+        } catch (...) {
+            logMessage(L"Saved primary avatar is unavailable; using built-in default: " + savedPrimaryImage);
+        }
+    }
+
     g_running.store(true);
     std::thread renderThread(renderThreadMain);
 

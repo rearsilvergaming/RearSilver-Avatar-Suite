@@ -77,6 +77,15 @@ window.chrome.webview.addEventListener('message',event=>{
     status.textContent='Preparing the image for the renderer…';
   }else if(type==='avatar-image-uploaded'){
     status.textContent='Loaded into the renderer.';
+  }else if(type==='avatar-image-current'){
+    document.getElementById('avatar-file').textContent=value;
+    status.textContent='Loaded from your saved settings.';
+  }else if(type==='avatar-image-default'){
+    document.getElementById('avatar-file').textContent='Default avatar';
+    status.textContent='Using the built-in placeholder.';
+  }else if(type==='avatar-image-unavailable'){
+    document.getElementById('avatar-file').textContent=value||'Saved image unavailable';
+    status.textContent='The saved file could not be loaded. Using the built-in placeholder.';
   }else if(type==='avatar-image-cancelled'){
     status.textContent='Selection cancelled. The current avatar is unchanged.';
   }else if(type==='avatar-image-error'){
