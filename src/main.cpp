@@ -17,6 +17,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <deque>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -48,20 +49,28 @@ std::atomic<bool> g_transformPending{true};
 std::mutex g_logMutex;
 HANDLE g_logFile = INVALID_HANDLE_VALUE;
 
+enum class ImageSlot : WPARAM {
+    Primary = 0,
+    Reaction = 1,
+};
+
 struct PendingImage {
     std::vector<unsigned char> rgba;
     UINT width = 0;
     UINT height = 0;
     std::wstring path;
+    ImageSlot slot = ImageSlot::Primary;
 };
 
 std::mutex g_pendingImageMutex;
-PendingImage g_pendingImage;
-bool g_hasPendingImage = false;
+std::deque<PendingImage> g_pendingImages;
 
 std::mutex g_primaryImageStateMutex;
 std::wstring g_primaryImagePath;
 bool g_primaryImageLoaded = false;
+std::wstring g_reactionImagePath;
+bool g_reactionImageLoaded = false;
+std::atomic<bool> g_previewReaction{false};
 
 struct RectF {
     float x = 0;
@@ -151,24 +160,24 @@ void ensureUnicodeSettingsFile(const std::wstring &path)
     CloseHandle(file);
 }
 
-std::wstring loadSavedPrimaryImagePath()
+std::wstring loadSavedImagePath(const wchar_t *key)
 {
     const std::wstring path = settingsFilePath();
     if (path.empty())
         return {};
     wchar_t value[32768]{};
-    GetPrivateProfileStringW(L"Avatar", L"PrimaryImage", L"", value,
+    GetPrivateProfileStringW(L"Avatar", key, L"", value,
                              static_cast<DWORD>(std::size(value)), path.c_str());
     return value;
 }
 
-void savePrimaryImagePath(const std::wstring &imagePath)
+void saveImagePath(const wchar_t *key, const std::wstring &imagePath)
 {
     const std::wstring path = settingsFilePath();
     if (path.empty())
         return;
     ensureUnicodeSettingsFile(path);
-    WritePrivateProfileStringW(L"Avatar", L"PrimaryImage", imagePath.c_str(), path.c_str());
+    WritePrivateProfileStringW(L"Avatar", key, imagePath.c_str(), path.c_str());
 }
 
 std::wstring fileNameFromPath(const std::wstring &path)
@@ -186,6 +195,18 @@ void sendPrimaryImageState()
         postAvatarSettingsMessage(L"avatar-image-current\t" + fileNameFromPath(g_primaryImagePath));
     } else {
         postAvatarSettingsMessage(L"avatar-image-unavailable\t" + fileNameFromPath(g_primaryImagePath));
+    }
+}
+
+void sendReactionImageState()
+{
+    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+    if (g_reactionImagePath.empty()) {
+        postAvatarSettingsMessage(L"reaction-image-empty");
+    } else if (g_reactionImageLoaded) {
+        postAvatarSettingsMessage(L"reaction-image-current\t" + fileNameFromPath(g_reactionImagePath));
+    } else {
+        postAvatarSettingsMessage(L"reaction-image-unavailable\t" + fileNameFromPath(g_reactionImagePath));
     }
 }
 
@@ -373,7 +394,7 @@ bool decodePng(const wchar_t *path, PendingImage &decoded)
     return true;
 }
 
-void openPngPicker(HWND owner = nullptr)
+void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
 {
     wchar_t path[32768]{};
     OPENFILENAMEW picker{};
@@ -391,23 +412,29 @@ void openPngPicker(HWND owner = nullptr)
             PendingImage decoded;
             if (!decodePng(path, decoded))
                 throw E_INVALIDARG;
+            decoded.slot = slot;
             {
                 std::lock_guard<std::mutex> lock(g_pendingImageMutex);
-                g_pendingImage = std::move(decoded);
-                g_hasPendingImage = true;
+                g_pendingImages.push_back(std::move(decoded));
             }
             logMessage(L"PNG decoded and queued for render-thread upload: " + std::wstring(path));
             const wchar_t *fileName = wcsrchr(path, L'\\');
-            postAvatarSettingsMessage(std::wstring(L"avatar-image-selected\t") +
+            postAvatarSettingsMessage(std::wstring(slot == ImageSlot::Reaction
+                                                        ? L"reaction-image-selected\t"
+                                                        : L"avatar-image-selected\t") +
                                       (fileName ? fileName + 1 : path));
         } catch (...) {
-            postAvatarSettingsMessage(L"avatar-image-error");
+            postAvatarSettingsMessage(slot == ImageSlot::Reaction
+                                          ? L"reaction-image-error"
+                                          : L"avatar-image-error");
             MessageBoxW(picker.hwndOwner,
                         L"Could not decode this image. Choose a valid PNG no larger than 8192 × 8192 pixels. The current avatar is unchanged.",
                         L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
         }
     } else if (CommDlgExtendedError() == 0) {
-        postAvatarSettingsMessage(L"avatar-image-cancelled");
+        postAvatarSettingsMessage(slot == ImageSlot::Reaction
+                                      ? L"reaction-image-cancelled"
+                                      : L"avatar-image-cancelled");
     }
     g_dialogOpen.store(false);
 }
@@ -526,26 +553,36 @@ public:
         PendingImage pending;
         {
             std::lock_guard<std::mutex> lock(g_pendingImageMutex);
-            if (!g_hasPendingImage)
+            if (g_pendingImages.empty())
                 return;
-            pending = std::move(g_pendingImage);
-            g_pendingImage = {};
-            g_hasPendingImage = false;
+            pending = std::move(g_pendingImages.front());
+            g_pendingImages.pop_front();
         }
 
         try {
             TextureAsset replacement = createTexture(pending.rgba.data(), pending.width, pending.height);
-            avatar_ = std::move(replacement);
-            {
-                std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
-                g_primaryImagePath = pending.path;
-                g_primaryImageLoaded = true;
+            if (pending.slot == ImageSlot::Reaction) {
+                reactionAvatar_ = std::move(replacement);
+                reactionAvatarLoaded_ = true;
+                {
+                    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                    g_reactionImagePath = pending.path;
+                    g_reactionImageLoaded = true;
+                }
+                saveImagePath(L"ReactionImage", pending.path);
+            } else {
+                primaryAvatar_ = std::move(replacement);
+                {
+                    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                    g_primaryImagePath = pending.path;
+                    g_primaryImageLoaded = true;
+                }
+                saveImagePath(L"PrimaryImage", pending.path);
             }
-            savePrimaryImagePath(pending.path);
             logMessage(L"Avatar atomically replaced after GPU upload: " + pending.path);
-            PostMessageW(window_, kImageUploadSuccessMessage, 0, 0);
+            PostMessageW(window_, kImageUploadSuccessMessage, static_cast<WPARAM>(pending.slot), 0);
         } catch (...) {
-            PostMessageW(window_, kImageUploadFailureMessage, 0, 0);
+            PostMessageW(window_, kImageUploadFailureMessage, static_cast<WPARAM>(pending.slot), 0);
         }
     }
 
@@ -573,14 +610,16 @@ public:
 
         const float maxWidth = static_cast<float>(width_) * 0.68f;
         const float maxHeight = static_cast<float>(height_) * 0.68f;
-        const float scale = std::min(maxWidth / avatar_.width, maxHeight / avatar_.height);
-        const float avatarWidth = avatar_.width * scale;
-        const float avatarHeight = avatar_.height * scale;
+        const TextureAsset &activeAvatar =
+            g_previewReaction.load() && reactionAvatarLoaded_ ? reactionAvatar_ : primaryAvatar_;
+        const float scale = std::min(maxWidth / activeAvatar.width, maxHeight / activeAvatar.height);
+        const float avatarWidth = activeAvatar.width * scale;
+        const float avatarHeight = activeAvatar.height * scale;
         const float bob = g_motionEnabled.load()
                               ? std::sin(static_cast<float>(GetTickCount64()) / 500.0f) *
                                     std::max(3.0f, static_cast<float>(height_) * 0.015f)
                               : 0.0f;
-        draw(avatar_, (static_cast<float>(width_) - avatarWidth) * 0.5f,
+        draw(activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f,
              (static_cast<float>(height_) - avatarHeight) * 0.5f + bob, avatarWidth,
              avatarHeight);
 
@@ -768,7 +807,7 @@ private:
                     paint(x, y, 89, 181, 226, 255);
             }
         }
-        avatar_ = createTexture(pixels.data(), size, size);
+        primaryAvatar_ = createTexture(pixels.data(), size, size);
         control_ = createSolid(30, 36, 48, 255);
         border_ = createSolid(48, 59, 74, 255);
         accent_ = createSolid(0, 212, 255, 255);
@@ -863,7 +902,9 @@ private:
     ComPtr<ID3D11Buffer> vertexBuffer_;
     ComPtr<ID3D11SamplerState> sampler_;
     ComPtr<ID3D11BlendState> blend_;
-    TextureAsset avatar_;
+    TextureAsset primaryAvatar_;
+    TextureAsset reactionAvatar_;
+    bool reactionAvatarLoaded_ = false;
     TextureAsset control_;
     TextureAsset border_;
     TextureAsset accent_;
@@ -954,18 +995,34 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsChoosePngMessage:
         openPngPicker(reinterpret_cast<HWND>(lParam));
         return 0;
+    case kAvatarSettingsChooseReactionPngMessage:
+        openPngPicker(reinterpret_cast<HWND>(lParam), ImageSlot::Reaction);
+        return 0;
+    case kAvatarSettingsPreviewReactionMessage:
+        g_previewReaction.store(wParam != FALSE);
+        postAvatarSettingsMessage(wParam != FALSE ? L"reaction-preview-on" : L"reaction-preview-off");
+        return 0;
     case kAvatarSettingsReadyMessage:
         sendPrimaryImageState();
+        sendReactionImageState();
+        postAvatarSettingsMessage(L"reaction-preview-off");
         return 0;
     case kImageUploadFailureMessage:
-        sendPrimaryImageState();
-        postAvatarSettingsMessage(L"avatar-image-upload-error");
+        if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
+            sendReactionImageState();
+            postAvatarSettingsMessage(L"reaction-image-upload-error");
+        } else {
+            sendPrimaryImageState();
+            postAvatarSettingsMessage(L"avatar-image-upload-error");
+        }
         MessageBoxW(window,
                     L"The PNG decoded successfully, but its GPU texture could not be created. The current avatar is unchanged.",
                     L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
         return 0;
     case kImageUploadSuccessMessage:
-        postAvatarSettingsMessage(L"avatar-image-uploaded");
+        postAvatarSettingsMessage(static_cast<ImageSlot>(wParam) == ImageSlot::Reaction
+                                      ? L"reaction-image-uploaded"
+                                      : L"avatar-image-uploaded");
         return 0;
     case kRenderFailureMessage: {
         g_running.store(false);
@@ -1027,7 +1084,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     ShowWindow(g_mainWindow, showCommand);
     UpdateWindow(g_mainWindow);
 
-    const std::wstring savedPrimaryImage = loadSavedPrimaryImagePath();
+    const std::wstring savedPrimaryImage = loadSavedImagePath(L"PrimaryImage");
     if (!savedPrimaryImage.empty()) {
         {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
@@ -1039,11 +1096,30 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
             if (!decodePng(savedPrimaryImage.c_str(), decoded))
                 throw E_INVALIDARG;
             std::lock_guard<std::mutex> lock(g_pendingImageMutex);
-            g_pendingImage = std::move(decoded);
-            g_hasPendingImage = true;
+            g_pendingImages.push_back(std::move(decoded));
             logMessage(L"Saved primary avatar queued for startup restore: " + savedPrimaryImage);
         } catch (...) {
             logMessage(L"Saved primary avatar is unavailable; using built-in default: " + savedPrimaryImage);
+        }
+    }
+
+    const std::wstring savedReactionImage = loadSavedImagePath(L"ReactionImage");
+    if (!savedReactionImage.empty()) {
+        {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            g_reactionImagePath = savedReactionImage;
+            g_reactionImageLoaded = false;
+        }
+        try {
+            PendingImage decoded;
+            if (!decodePng(savedReactionImage.c_str(), decoded))
+                throw E_INVALIDARG;
+            decoded.slot = ImageSlot::Reaction;
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(decoded));
+            logMessage(L"Saved reaction avatar queued for startup restore: " + savedReactionImage);
+        } catch (...) {
+            logMessage(L"Saved reaction avatar is unavailable: " + savedReactionImage);
         }
     }
 

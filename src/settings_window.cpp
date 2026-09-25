@@ -52,6 +52,8 @@ void resizeWebView()
 void hideSettingsWindow()
 {
     g_settingsVisible.store(false);
+    if (g_ownerWindow && IsWindow(g_ownerWindow))
+        PostMessageW(g_ownerWindow, kAvatarSettingsPreviewReactionMessage, FALSE, 0);
     if (g_controller)
         g_controller->put_IsVisible(FALSE);
     if (g_settingsWindow)
@@ -115,6 +117,14 @@ void initialiseWebView()
                                             else if (wcscmp(message, L"avatar-settings-ready") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
+                                            else if (wcscmp(message, L"choose-reaction-png") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsChooseReactionPngMessage,
+                                                             0, reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcsncmp(message, L"preview-reaction:", 17) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPreviewReactionMessage,
+                                                             wcscmp(message + 17, L"on") == 0, 0);
                                             CoTaskMemFree(message);
                                         }
                                         return S_OK;

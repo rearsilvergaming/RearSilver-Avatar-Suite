@@ -24,7 +24,9 @@ button:hover{border-color:var(--cyan);background:#063847}
 .card{min-height:170px;background:var(--raised);border:1px solid #344257;border-radius:12px;padding:18px}
 .card h3{font-size:15px;margin:0 0 8px}.card p{color:var(--muted);line-height:1.55;margin:0}
 .setting-row{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-top:20px}
+.setting-actions{display:flex;gap:8px;flex-wrap:wrap}
 .file-state{min-width:0}.file-name{font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.status{color:var(--muted);font-size:12px;margin-top:6px}
+button:disabled{cursor:not-allowed;opacity:.45}
 .tag{display:inline-block;margin-top:16px;border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;letter-spacing:.04em;padding:5px 8px;text-transform:uppercase}
 @media(max-width:760px){.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
 </style>
@@ -44,14 +46,24 @@ button:hover{border-color:var(--cyan);background:#063847}
   <section class="panel page" data-page="avatar">
     <h2>Avatar</h2>
     <p class="intro">Choose the primary image shown in the renderer and sent to your output.</p>
-    <article class="card">
-      <h3>Primary image</h3>
-      <p>Choose a PNG up to 8192 × 8192 pixels. A cancelled or invalid selection leaves the current avatar unchanged.</p>
-      <div class="setting-row">
-        <div class="file-state"><div class="file-name" id="avatar-file">Default avatar</div><div class="status" id="avatar-status">Using the built-in placeholder.</div></div>
-        <button class="primary" id="choose-avatar">Choose PNG…</button>
-      </div>
-    </article>
+    <div class="cards">
+      <article class="card">
+        <h3>Primary image</h3>
+        <p>Choose the resting image shown while microphone input is below the reaction threshold.</p>
+        <div class="setting-row">
+          <div class="file-state"><div class="file-name" id="avatar-file">Default avatar</div><div class="status" id="avatar-status">Using the built-in placeholder.</div></div>
+          <button class="primary" id="choose-avatar">Choose PNG…</button>
+        </div>
+      </article>
+      <article class="card">
+        <h3>Reaction image</h3>
+        <p>Choose the image that will be shown when microphone input triggers the avatar.</p>
+        <div class="setting-row">
+          <div class="file-state"><div class="file-name" id="reaction-file">No reaction image</div><div class="status" id="reaction-status">Choose an image to enable preview.</div></div>
+          <div class="setting-actions"><button id="choose-reaction">Choose PNG…</button><button class="primary" id="preview-reaction" disabled>Preview reaction</button></div>
+        </div>
+      </article>
+    </div>
   </section>
   <section class="panel page" data-page="microphone" hidden><h2>Microphone</h2><p class="intro">Microphone controls will be added in a later approved stage.</p></section>
   <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Output controls will be added in a later approved stage.</p></section>
@@ -68,6 +80,23 @@ document.getElementById('choose-avatar').onclick=()=>{
   document.getElementById('avatar-status').textContent='Waiting for a PNG selection…';
   window.chrome.webview.postMessage('choose-avatar-png');
 };
+let reactionAvailable=false;
+let reactionPreview=false;
+const previewReaction=document.getElementById('preview-reaction');
+document.getElementById('choose-reaction').onclick=()=>{
+  document.getElementById('reaction-status').textContent='Waiting for a PNG selection…';
+  window.chrome.webview.postMessage('choose-reaction-png');
+};
+previewReaction.onclick=()=>{
+  if(!reactionAvailable)return;
+  reactionPreview=!reactionPreview;
+  window.chrome.webview.postMessage(`preview-reaction:${reactionPreview?'on':'off'}`);
+};
+function setReactionAvailable(available){
+  reactionAvailable=available;
+  previewReaction.disabled=!available;
+  if(!available)reactionPreview=false;
+}
 window.chrome.webview.addEventListener('message',event=>{
   const message=String(event.data||'');
   const [type,value='']=message.split('\t',2);
@@ -92,6 +121,36 @@ window.chrome.webview.addEventListener('message',event=>{
     status.textContent='This file could not be decoded. The current avatar is unchanged.';
   }else if(type==='avatar-image-upload-error'){
     status.textContent='The image could not be uploaded to the GPU. The current avatar is unchanged.';
+  }else if(type==='reaction-image-selected'){
+    document.getElementById('reaction-file').textContent=value;
+    document.getElementById('reaction-status').textContent='Preparing the image for the renderer…';
+  }else if(type==='reaction-image-uploaded'){
+    setReactionAvailable(true);
+    document.getElementById('reaction-status').textContent='Loaded and ready to preview.';
+  }else if(type==='reaction-image-current'){
+    document.getElementById('reaction-file').textContent=value;
+    setReactionAvailable(true);
+    document.getElementById('reaction-status').textContent='Loaded from your saved settings.';
+  }else if(type==='reaction-image-empty'){
+    document.getElementById('reaction-file').textContent='No reaction image';
+    setReactionAvailable(false);
+    document.getElementById('reaction-status').textContent='Choose an image to enable preview.';
+  }else if(type==='reaction-image-unavailable'){
+    document.getElementById('reaction-file').textContent=value||'Saved image unavailable';
+    setReactionAvailable(false);
+    document.getElementById('reaction-status').textContent='The saved file could not be loaded.';
+  }else if(type==='reaction-image-cancelled'){
+    document.getElementById('reaction-status').textContent='Selection cancelled. The current reaction image is unchanged.';
+  }else if(type==='reaction-image-error'){
+    document.getElementById('reaction-status').textContent='This file could not be decoded. The current reaction image is unchanged.';
+  }else if(type==='reaction-image-upload-error'){
+    document.getElementById('reaction-status').textContent='The image could not be uploaded. The current reaction image is unchanged.';
+  }else if(type==='reaction-preview-on'){
+    reactionPreview=true;
+    previewReaction.textContent='Show primary';
+  }else if(type==='reaction-preview-off'){
+    reactionPreview=false;
+    previewReaction.textContent='Preview reaction';
   }
 });
 window.chrome.webview.postMessage('avatar-settings-ready');
