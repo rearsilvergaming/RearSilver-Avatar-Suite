@@ -61,7 +61,14 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 - Microphone-reaction effects planned for the product are float, bounce, squash and stretch, shake, tilt, breathing, and an optional lighter reaction appearance.
 - The darker-idle/lighter-reaction option is a visual treatment for users who want an obvious speaking state without supplying a separate reaction image. It must work with one source image and must not require duplicated image assets.
 - Effect controls belong to the shared WebView2 Settings components so the guided setup can reuse them later.
+- Present whole-avatar effects as an ordered stack. A single Add Effect control opens a plain-language effect picker; selecting an effect adds and expands its settings card and leaves Add Effect available beneath the stack.
+- Keep the complete effect catalogue visible in the picker. Effects already present in the stack are greyed out, disabled, and labelled `Already added` so users can discover available effect types without accidentally adding duplicate instances.
+- Each effect card supports enable or bypass without losing settings, expand or collapse, removal, and reordering. The stored list is the authoritative processing order. Initially allow one instance of each whole-avatar effect type; layer-specific effects may later reuse the same card pattern independently.
+- Show an informative empty state when no effects are configured. Removing one effect must not alter the configuration or phase of any remaining effect.
 - Adding or changing an effect must not reset blink phase, interrupt microphone detection, create transform jumps between image states, or disturb DirectComposition and OBS output stability.
+- When an effect has a meaningful intensity range, pair its exact numeric value with plain-language range names and clickable markers. Wording may vary by effect so the labels describe the visible result. Squash and stretch uses Subtle, Animated, Cartoon, and Absurd across a 0–300% range; existing and future effects should use equivalent descriptive scales where they improve configuration.
+- Squash and stretch is a one-shot, bottom-centre-anchored reaction animation that squashes, stretches, and eases back to the neutral transform when speech begins. It composes with continuous effects without resetting their phase and permits deliberately extreme cartoon deformation while clamping scale above inversion or collapse.
+- Shake runs continuously while microphone reaction is active and settles smoothly back to the current composed position when reaction ends. It provides direction, intensity, speed, and optional rotation-wobble controls; uses continuous deterministic motion so image-state changes do not restart its phase; and composes independently with bounce, breathing, and squash and stretch.
 
 ## Microphone reaction detection
 
@@ -87,6 +94,11 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 - A layer may later provide idle and reaction image variants when a transform cannot represent the required artwork change. Static transparent layers remain the minimum supported form.
 - Layer transforms may be animated independently. Supported automation properties should include visibility, position, scale, rotation, and opacity, while named variants cover changes requiring different artwork.
 - Layer texture loading must respect GPU-memory limits. PNG file size is not a measure of decoded texture memory; the interface should report useful estimated memory consumption and avoid loading unused variants until required.
+- Layer-specific effects are configured on the Layers page inside the relevant expanded layer slot. The main Effects page remains the ordered whole-avatar effect stack and must not mix global and layer-specific cards.
+- Each layer slot contains a collapsed Layer Effects panel that summarises the number of active local effects. Opening it exposes the same Add Effect, ordered cards, enable or bypass, collapse, remove, and reorder interaction used by the main effect stack. A new layer starts with an empty local stack.
+- Apply a layer's local transform and local effect stack before compositing it with Primary and the other layers. Apply the whole-avatar effect stack to the assembled avatar afterwards so local motion remains attached during global bounce, breathing, squash and stretch, and other avatar-root effects.
+- Layers inherit whole-avatar effects by default. Each layer provides an `Inherit avatar effects` control for exceptional overlays that must remain stationary or otherwise independent of the avatar-root effect stack.
+- Filter or recommend layer effects according to the layer purpose where useful. Specialised choices such as Tail Wag or Eye Movement may appear for matching layer purposes, while general effects such as Float remain available where technically compatible.
 
 ## Future automation and event integration
 

@@ -25,6 +25,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 using Microsoft::WRL::ComPtr;
@@ -107,9 +108,30 @@ std::atomic<unsigned> g_blinkMinimumMs{3000};
 std::atomic<unsigned> g_blinkMaximumMs{6000};
 std::atomic<unsigned> g_blinkDurationMs{150};
 std::atomic<bool> g_bounceEnabled{true};
+std::atomic<bool> g_bounceAdded{true};
 std::atomic<unsigned> g_bounceHeightPixels{40};
 std::atomic<unsigned> g_bounceDurationMs{350};
 std::atomic<ULONGLONG> g_bounceStartedAt{0};
+std::atomic<bool> g_breathingAdded{false};
+std::atomic<bool> g_breathingEnabled{true};
+std::atomic<unsigned> g_breathingMode{1};
+std::atomic<unsigned> g_breathingIdleAmount{20};
+std::atomic<unsigned> g_breathingReactionAmount{30};
+std::atomic<unsigned> g_breathingCycleMs{2500};
+std::atomic<bool> g_squashAdded{false};
+std::atomic<bool> g_squashEnabled{true};
+std::atomic<unsigned> g_squashIntensity{70};
+std::atomic<unsigned> g_squashDurationMs{500};
+std::atomic<ULONGLONG> g_squashStartedAt{0};
+std::atomic<bool> g_shakeAdded{false};
+std::atomic<bool> g_shakeEnabled{true};
+std::atomic<unsigned> g_shakeIntensity{70};
+std::atomic<unsigned> g_shakeSpeed{45};
+std::atomic<unsigned> g_shakeDirection{0};
+std::atomic<bool> g_shakeWobble{true};
+std::atomic<ULONGLONG> g_shakePreviewUntil{0};
+std::mutex g_effectStackMutex;
+std::wstring g_effectStack = L"bounce";
 
 struct RectF {
     float x = 0;
@@ -309,17 +331,50 @@ void sendBlinkSettings()
 
 void sendBounceSettings()
 {
+    {
+        std::lock_guard<std::mutex> lock(g_effectStackMutex);
+        postAvatarSettingsMessage(L"effect-stack\t" + g_effectStack);
+    }
     postAvatarSettingsMessage(g_bounceEnabled.load() ? L"bounce-enabled\t1" : L"bounce-enabled\t0");
     postAvatarSettingsMessage(L"bounce-height\t" + std::to_wstring(g_bounceHeightPixels.load()));
     postAvatarSettingsMessage(L"bounce-duration\t" + std::to_wstring(g_bounceDurationMs.load()));
+    postAvatarSettingsMessage(g_breathingEnabled.load() ? L"breathing-enabled\t1"
+                                                        : L"breathing-enabled\t0");
+    postAvatarSettingsMessage(L"breathing-mode\t" + std::to_wstring(g_breathingMode.load()));
+    postAvatarSettingsMessage(L"breathing-idle\t" +
+                              std::to_wstring(g_breathingIdleAmount.load()));
+    postAvatarSettingsMessage(L"breathing-reaction\t" +
+                              std::to_wstring(g_breathingReactionAmount.load()));
+    postAvatarSettingsMessage(L"breathing-cycle\t" +
+                              std::to_wstring(g_breathingCycleMs.load()));
+    postAvatarSettingsMessage(g_squashEnabled.load() ? L"squash-enabled\t1"
+                                                      : L"squash-enabled\t0");
+    postAvatarSettingsMessage(L"squash-intensity\t" +
+                              std::to_wstring(g_squashIntensity.load()));
+    postAvatarSettingsMessage(L"squash-duration\t" +
+                              std::to_wstring(g_squashDurationMs.load()));
+    postAvatarSettingsMessage(g_shakeEnabled.load() ? L"shake-enabled\t1"
+                                                     : L"shake-enabled\t0");
+    postAvatarSettingsMessage(L"shake-intensity\t" +
+                              std::to_wstring(g_shakeIntensity.load()));
+    postAvatarSettingsMessage(L"shake-speed\t" + std::to_wstring(g_shakeSpeed.load()));
+    postAvatarSettingsMessage(L"shake-direction\t" +
+                              std::to_wstring(g_shakeDirection.load()));
+    postAvatarSettingsMessage(g_shakeWobble.load() ? L"shake-wobble\t1"
+                                                    : L"shake-wobble\t0");
 }
 
-void triggerReactionBounce()
+void triggerReactionEffects()
 {
-    if (!g_bounceEnabled.load())
-        return;
-    g_bounceStartedAt.store(GetTickCount64());
-    postAvatarSettingsMessage(L"bounce-triggered");
+    const ULONGLONG now = GetTickCount64();
+    if (g_bounceAdded.load() && g_bounceEnabled.load()) {
+        g_bounceStartedAt.store(now);
+        postAvatarSettingsMessage(L"bounce-triggered");
+    }
+    if (g_squashAdded.load() && g_squashEnabled.load()) {
+        g_squashStartedAt.store(now);
+        postAvatarSettingsMessage(L"squash-triggered");
+    }
 }
 
 void sendMicrophoneState()
@@ -351,7 +406,7 @@ void setMicrophoneReaction(bool active)
     const bool previous = g_microphoneReaction.exchange(active);
     if (previous != active) {
         if (active)
-            triggerReactionBounce();
+            triggerReactionEffects();
         postAvatarSettingsMessage(active ? L"microphone-reaction-on"
                                          : L"microphone-reaction-off");
     }
@@ -856,8 +911,8 @@ public:
 
         const float maxWidth = static_cast<float>(width_) * 0.68f;
         const float maxHeight = static_cast<float>(height_) * 0.68f;
-        const bool reactionState =
-            (g_previewReaction.load() || g_microphoneReaction.load()) && reactionAvatarLoaded_;
+        const bool reactionActive = g_previewReaction.load() || g_microphoneReaction.load();
+        const bool reactionState = reactionActive && reactionAvatarLoaded_;
         const TextureAsset *activeAvatar = reactionState ? &reactionAvatar_ : &primaryAvatar_;
         if (blinking_) {
             if (reactionState && reactionBlinkAvatarLoaded_)
@@ -866,8 +921,65 @@ public:
                 activeAvatar = &primaryBlinkAvatar_;
         }
         const float scale = std::min(maxWidth / activeAvatar->width, maxHeight / activeAvatar->height);
-        const float avatarWidth = activeAvatar->width * scale;
-        const float avatarHeight = activeAvatar->height * scale;
+        float avatarWidth = activeAvatar->width * scale;
+        float avatarHeight = activeAvatar->height * scale;
+        const float baseBottom = (static_cast<float>(height_) + avatarHeight) * 0.5f;
+        float targetBreathAmount = 0.0f;
+        if (g_breathingAdded.load() && g_breathingEnabled.load()) {
+            const unsigned mode = g_breathingMode.load();
+            const bool applies = mode == 1 || (mode == 0 && !reactionState) ||
+                                 (mode == 2 && reactionState);
+            if (applies)
+                targetBreathAmount = static_cast<float>(reactionState
+                                         ? g_breathingReactionAmount.load()
+                                         : g_breathingIdleAmount.load()) / 1000.0f;
+        }
+        if (lastBreathUpdateAt_ == 0) {
+            currentBreathAmount_ = targetBreathAmount;
+        } else {
+            const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - lastBreathUpdateAt_, 250));
+            const float blend = std::min(1.0f, elapsed / 180.0f);
+            currentBreathAmount_ += (targetBreathAmount - currentBreathAmount_) * blend;
+            if (std::abs(targetBreathAmount - currentBreathAmount_) < 0.00001f)
+                currentBreathAmount_ = targetBreathAmount;
+        }
+        lastBreathUpdateAt_ = now;
+        if (currentBreathAmount_ > 0.00001f) {
+            const unsigned cycle = std::max(500u, g_breathingCycleMs.load());
+            const float wave = std::sin(static_cast<float>(now % cycle) /
+                                        static_cast<float>(cycle) * 6.28318530718f);
+            avatarWidth *= 1.0f - wave * currentBreathAmount_ * 0.25f;
+            avatarHeight *= 1.0f + wave * currentBreathAmount_;
+        }
+        const ULONGLONG squashStartedAt = g_squashStartedAt.load();
+        const unsigned squashDuration = g_squashDurationMs.load();
+        if (g_squashAdded.load() && g_squashEnabled.load() && squashStartedAt > 0 &&
+            now >= squashStartedAt && now - squashStartedAt < squashDuration) {
+            const float progress = static_cast<float>(now - squashStartedAt) /
+                                   static_cast<float>(squashDuration);
+            const float amount = static_cast<float>(g_squashIntensity.load()) / 100.0f;
+            auto smoothStep = [](float value) {
+                value = std::clamp(value, 0.0f, 1.0f);
+                return value * value * (3.0f - 2.0f * value);
+            };
+            float scaleX = 1.0f;
+            float scaleY = 1.0f;
+            if (progress < 0.22f) {
+                const float phase = smoothStep(progress / 0.22f);
+                scaleX = 1.0f + 0.16f * amount * phase;
+                scaleY = 1.0f - 0.12f * amount * phase;
+            } else if (progress < 0.48f) {
+                const float phase = smoothStep((progress - 0.22f) / 0.26f);
+                scaleX = 1.0f + (0.16f - 0.26f * phase) * amount;
+                scaleY = 1.0f + (-0.12f + 0.34f * phase) * amount;
+            } else {
+                const float phase = smoothStep((progress - 0.48f) / 0.52f);
+                scaleX = 1.0f - 0.10f * amount * (1.0f - phase);
+                scaleY = 1.0f + 0.22f * amount * (1.0f - phase);
+            }
+            avatarWidth *= std::max(0.55f, scaleX);
+            avatarHeight *= std::max(0.55f, scaleY);
+        }
         const float bob = g_motionEnabled.load()
                               ? std::sin(static_cast<float>(GetTickCount64()) / 500.0f) *
                                     std::max(3.0f, static_cast<float>(height_) * 0.015f)
@@ -882,9 +994,40 @@ public:
             bounce = -std::sin(progress * 3.14159265359f) *
                      static_cast<float>(g_bounceHeightPixels.load());
         }
-        draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f,
-             (static_cast<float>(height_) - avatarHeight) * 0.5f + bob + bounce, avatarWidth,
-             avatarHeight);
+        const bool shakeTarget = g_shakeAdded.load() && g_shakeEnabled.load() &&
+                                 (reactionActive || now < g_shakePreviewUntil.load());
+        if (lastShakeUpdateAt_ == 0) {
+            currentShakeMix_ = shakeTarget ? 1.0f : 0.0f;
+        } else {
+            const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - lastShakeUpdateAt_, 250));
+            const float duration = shakeTarget ? 60.0f : 160.0f;
+            const float blend = std::min(1.0f, elapsed / duration);
+            currentShakeMix_ += ((shakeTarget ? 1.0f : 0.0f) - currentShakeMix_) * blend;
+            if (currentShakeMix_ < 0.0001f)
+                currentShakeMix_ = 0.0f;
+        }
+        lastShakeUpdateAt_ = now;
+        float shakeX = 0.0f;
+        float shakeY = 0.0f;
+        float shakeRotation = 0.0f;
+        if (currentShakeMix_ > 0.0f) {
+            const float intensity = static_cast<float>(g_shakeIntensity.load()) / 100.0f;
+            const float phase = static_cast<float>(now) *
+                                (static_cast<float>(g_shakeSpeed.load()) / 10.0f) *
+                                0.00628318530718f;
+            const float amplitude = 12.0f * intensity * currentShakeMix_;
+            const unsigned direction = g_shakeDirection.load();
+            if (direction != 2)
+                shakeX = (std::sin(phase) * 0.68f + std::sin(phase * 2.13f + 1.4f) * 0.32f) * amplitude;
+            if (direction != 1)
+                shakeY = (std::sin(phase * 1.37f + 2.1f) * 0.72f + std::sin(phase * 2.71f) * 0.28f) * amplitude;
+            if (g_shakeWobble.load())
+                shakeRotation = std::sin(phase * 1.17f + 0.8f) * intensity *
+                                currentShakeMix_ * 0.0261799388f;
+        }
+        draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f + shakeX,
+             baseBottom - avatarHeight + bob + bounce + shakeY, avatarWidth,
+             avatarHeight, shakeRotation);
 
         const bool overlayVisible = g_applicationActive.load() && !g_dialogOpen.load() &&
                                     !isAvatarSettingsWindowVisible();
@@ -1104,17 +1247,38 @@ private:
         context_->OMSetBlendState(blend_.Get(), nullptr, 0xffffffff);
     }
 
-    void draw(const TextureAsset &texture, float x, float y, float width, float height)
+    void draw(const TextureAsset &texture, float x, float y, float width, float height,
+              float rotation = 0.0f)
     {
         if (!texture.view || width <= 0 || height <= 0)
             return;
-        const float left = 2.0f * x / width_ - 1.0f;
-        const float right = 2.0f * (x + width) / width_ - 1.0f;
-        const float top = 1.0f - 2.0f * y / height_;
-        const float bottom = 1.0f - 2.0f * (y + height) / height_;
+        auto toClip = [this](float pixelX, float pixelY) {
+            return std::pair<float, float>{2.0f * pixelX / width_ - 1.0f,
+                                           1.0f - 2.0f * pixelY / height_};
+        };
+        auto rotate = [rotation, pivotX = x + width * 0.5f, pivotY = y + height](float px, float py) {
+            if (std::abs(rotation) < 0.000001f)
+                return std::pair<float, float>{px, py};
+            const float cosine = std::cos(rotation);
+            const float sine = std::sin(rotation);
+            const float dx = px - pivotX;
+            const float dy = py - pivotY;
+            return std::pair<float, float>{pivotX + dx * cosine - dy * sine,
+                                           pivotY + dx * sine + dy * cosine};
+        };
+        const auto topLeftPixel = rotate(x, y);
+        const auto topRightPixel = rotate(x + width, y);
+        const auto bottomLeftPixel = rotate(x, y + height);
+        const auto bottomRightPixel = rotate(x + width, y + height);
+        const auto topLeft = toClip(topLeftPixel.first, topLeftPixel.second);
+        const auto topRight = toClip(topRightPixel.first, topRightPixel.second);
+        const auto bottomLeft = toClip(bottomLeftPixel.first, bottomLeftPixel.second);
+        const auto bottomRight = toClip(bottomRightPixel.first, bottomRightPixel.second);
         const Vertex vertices[] = {
-            {left, top, 0, 0}, {right, top, 1, 0}, {left, bottom, 0, 1},
-            {left, bottom, 0, 1}, {right, top, 1, 0}, {right, bottom, 1, 1}};
+            {topLeft.first, topLeft.second, 0, 0}, {topRight.first, topRight.second, 1, 0},
+            {bottomLeft.first, bottomLeft.second, 0, 1},
+            {bottomLeft.first, bottomLeft.second, 0, 1}, {topRight.first, topRight.second, 1, 0},
+            {bottomRight.first, bottomRight.second, 1, 1}};
         D3D11_MAPPED_SUBRESOURCE mapped{};
         check(context_->Map(vertexBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
         memcpy(mapped.pData, vertices, sizeof(vertices));
@@ -1187,6 +1351,10 @@ private:
     ULONGLONG nextBlinkAt_ = 0;
     ULONGLONG blinkEndsAt_ = 0;
     unsigned blinkRandomState_ = static_cast<unsigned>(GetTickCount());
+    float currentBreathAmount_ = 0.0f;
+    ULONGLONG lastBreathUpdateAt_ = 0;
+    float currentShakeMix_ = 0.0f;
+    ULONGLONG lastShakeUpdateAt_ = 0;
     TextureAsset control_;
     TextureAsset border_;
     TextureAsset accent_;
@@ -1432,6 +1600,82 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         g_bounceEnabled.store(wParam != FALSE);
         saveSetting(L"BounceEnabled", wParam != FALSE ? L"1" : L"0");
         return 0;
+    case kAvatarSettingsEffectStackMessage: {
+        std::unique_ptr<std::wstring> stack(reinterpret_cast<std::wstring *>(lParam));
+        const std::wstring value = stack ? *stack : L"";
+        {
+            std::lock_guard<std::mutex> lock(g_effectStackMutex);
+            g_effectStack = value;
+        }
+        const auto containsEffect = [&value](const std::wstring &name) {
+            const std::wstring padded = L"," + value + L",";
+            return padded.find(L"," + name + L",") != std::wstring::npos;
+        };
+        g_bounceAdded.store(containsEffect(L"bounce"));
+        g_breathingAdded.store(containsEffect(L"breathing"));
+        g_squashAdded.store(containsEffect(L"squash"));
+        g_shakeAdded.store(containsEffect(L"shake"));
+        saveSetting(L"EffectStack", value);
+        if (!g_bounceAdded.load())
+            g_bounceStartedAt.store(0);
+        if (!g_squashAdded.load())
+            g_squashStartedAt.store(0);
+        if (!g_shakeAdded.load())
+            g_shakePreviewUntil.store(0);
+        return 0;
+    }
+    case kAvatarSettingsBreathingEnabledMessage:
+        g_breathingEnabled.store(wParam != FALSE);
+        saveSetting(L"BreathingEnabled", wParam != FALSE ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsBreathingModeMessage:
+        g_breathingMode.store(std::min<unsigned>(static_cast<unsigned>(wParam), 2));
+        saveSetting(L"BreathingMode", std::to_wstring(g_breathingMode.load()));
+        return 0;
+    case kAvatarSettingsBreathingIdleMessage:
+        g_breathingIdleAmount.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 100));
+        saveSetting(L"BreathingIdleAmount", std::to_wstring(g_breathingIdleAmount.load()));
+        return 0;
+    case kAvatarSettingsBreathingReactionMessage:
+        g_breathingReactionAmount.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 100));
+        saveSetting(L"BreathingReactionAmount", std::to_wstring(g_breathingReactionAmount.load()));
+        return 0;
+    case kAvatarSettingsBreathingCycleMessage:
+        g_breathingCycleMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 500, 10000));
+        saveSetting(L"BreathingCycleMs", std::to_wstring(g_breathingCycleMs.load()));
+        return 0;
+    case kAvatarSettingsSquashEnabledMessage:
+        g_squashEnabled.store(wParam != FALSE);
+        saveSetting(L"SquashEnabled", g_squashEnabled.load() ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsSquashIntensityMessage:
+        g_squashIntensity.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 300));
+        saveSetting(L"SquashIntensity", std::to_wstring(g_squashIntensity.load()));
+        return 0;
+    case kAvatarSettingsSquashDurationMessage:
+        g_squashDurationMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 200, 1600));
+        saveSetting(L"SquashDurationMs", std::to_wstring(g_squashDurationMs.load()));
+        return 0;
+    case kAvatarSettingsShakeEnabledMessage:
+        g_shakeEnabled.store(wParam != FALSE);
+        saveSetting(L"ShakeEnabled", g_shakeEnabled.load() ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsShakeIntensityMessage:
+        g_shakeIntensity.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 300));
+        saveSetting(L"ShakeIntensity", std::to_wstring(g_shakeIntensity.load()));
+        return 0;
+    case kAvatarSettingsShakeSpeedMessage:
+        g_shakeSpeed.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 8, 120));
+        saveSetting(L"ShakeSpeed", std::to_wstring(g_shakeSpeed.load()));
+        return 0;
+    case kAvatarSettingsShakeDirectionMessage:
+        g_shakeDirection.store(std::min<unsigned>(static_cast<unsigned>(wParam), 2));
+        saveSetting(L"ShakeDirection", std::to_wstring(g_shakeDirection.load()));
+        return 0;
+    case kAvatarSettingsShakeWobbleMessage:
+        g_shakeWobble.store(wParam != FALSE);
+        saveSetting(L"ShakeWobble", g_shakeWobble.load() ? L"1" : L"0");
+        return 0;
     case kAvatarSettingsBounceHeightMessage:
         g_bounceHeightPixels.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 5, 160));
         saveSetting(L"BounceHeightPixels", std::to_wstring(g_bounceHeightPixels.load()));
@@ -1441,7 +1685,22 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         saveSetting(L"BounceDurationMs", std::to_wstring(g_bounceDurationMs.load()));
         return 0;
     case kAvatarSettingsPreviewBounceMessage:
-        triggerReactionBounce();
+        if (g_bounceAdded.load() && g_bounceEnabled.load()) {
+            g_bounceStartedAt.store(GetTickCount64());
+            postAvatarSettingsMessage(L"bounce-triggered");
+        }
+        return 0;
+    case kAvatarSettingsPreviewSquashMessage:
+        if (g_squashAdded.load() && g_squashEnabled.load()) {
+            g_squashStartedAt.store(GetTickCount64());
+            postAvatarSettingsMessage(L"squash-triggered");
+        }
+        return 0;
+    case kAvatarSettingsPreviewShakeMessage:
+        if (g_shakeAdded.load() && g_shakeEnabled.load()) {
+            g_shakePreviewUntil.store(GetTickCount64() + 2000);
+            postAvatarSettingsMessage(L"shake-preview-triggered");
+        }
         return 0;
     case kAvatarSettingsCalibrateNoiseMessage:
         g_noiseCalibrationActive = true;
@@ -1819,6 +2078,55 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     if (!savedBounceDuration.empty())
         g_bounceDurationMs.store(std::clamp<unsigned>(wcstoul(savedBounceDuration.c_str(), nullptr, 10),
                                                       100, 1200));
+    const std::wstring savedEffectStack = loadSetting(L"EffectStack");
+    if (!savedEffectStack.empty()) {
+        std::lock_guard<std::mutex> lock(g_effectStackMutex);
+        g_effectStack = savedEffectStack;
+        const std::wstring padded = L"," + savedEffectStack + L",";
+        g_bounceAdded.store(padded.find(L",bounce,") != std::wstring::npos);
+        g_breathingAdded.store(padded.find(L",breathing,") != std::wstring::npos);
+        g_squashAdded.store(padded.find(L",squash,") != std::wstring::npos);
+        g_shakeAdded.store(padded.find(L",shake,") != std::wstring::npos);
+    }
+    const std::wstring savedBreathingEnabled = loadSetting(L"BreathingEnabled");
+    if (!savedBreathingEnabled.empty())
+        g_breathingEnabled.store(savedBreathingEnabled != L"0");
+    const std::wstring savedBreathingMode = loadSetting(L"BreathingMode");
+    if (!savedBreathingMode.empty())
+        g_breathingMode.store(std::min<unsigned>(wcstoul(savedBreathingMode.c_str(), nullptr, 10), 2));
+    const std::wstring savedBreathingIdle = loadSetting(L"BreathingIdleAmount");
+    if (!savedBreathingIdle.empty())
+        g_breathingIdleAmount.store(std::clamp<unsigned>(wcstoul(savedBreathingIdle.c_str(), nullptr, 10), 0, 100));
+    const std::wstring savedBreathingReaction = loadSetting(L"BreathingReactionAmount");
+    if (!savedBreathingReaction.empty())
+        g_breathingReactionAmount.store(std::clamp<unsigned>(wcstoul(savedBreathingReaction.c_str(), nullptr, 10), 0, 100));
+    const std::wstring savedBreathingCycle = loadSetting(L"BreathingCycleMs");
+    if (!savedBreathingCycle.empty())
+        g_breathingCycleMs.store(std::clamp<unsigned>(wcstoul(savedBreathingCycle.c_str(), nullptr, 10), 500, 10000));
+    const std::wstring savedSquashEnabled = loadSetting(L"SquashEnabled");
+    if (!savedSquashEnabled.empty())
+        g_squashEnabled.store(savedSquashEnabled != L"0");
+    const std::wstring savedSquashIntensity = loadSetting(L"SquashIntensity");
+    if (!savedSquashIntensity.empty())
+        g_squashIntensity.store(std::clamp<unsigned>(wcstoul(savedSquashIntensity.c_str(), nullptr, 10), 0, 300));
+    const std::wstring savedSquashDuration = loadSetting(L"SquashDurationMs");
+    if (!savedSquashDuration.empty())
+        g_squashDurationMs.store(std::clamp<unsigned>(wcstoul(savedSquashDuration.c_str(), nullptr, 10), 200, 1600));
+    const std::wstring savedShakeEnabled = loadSetting(L"ShakeEnabled");
+    if (!savedShakeEnabled.empty())
+        g_shakeEnabled.store(savedShakeEnabled != L"0");
+    const std::wstring savedShakeIntensity = loadSetting(L"ShakeIntensity");
+    if (!savedShakeIntensity.empty())
+        g_shakeIntensity.store(std::clamp<unsigned>(wcstoul(savedShakeIntensity.c_str(), nullptr, 10), 0, 300));
+    const std::wstring savedShakeSpeed = loadSetting(L"ShakeSpeed");
+    if (!savedShakeSpeed.empty())
+        g_shakeSpeed.store(std::clamp<unsigned>(wcstoul(savedShakeSpeed.c_str(), nullptr, 10), 8, 120));
+    const std::wstring savedShakeDirection = loadSetting(L"ShakeDirection");
+    if (!savedShakeDirection.empty())
+        g_shakeDirection.store(std::min<unsigned>(wcstoul(savedShakeDirection.c_str(), nullptr, 10), 2));
+    const std::wstring savedShakeWobble = loadSetting(L"ShakeWobble");
+    if (!savedShakeWobble.empty())
+        g_shakeWobble.store(savedShakeWobble != L"0");
     g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
 
     g_running.store(true);

@@ -41,14 +41,21 @@ select{width:100%;border:1px solid var(--border);border-radius:9px;background:#1
 .control-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:16px;margin-top:18px}
 .range-heading{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}
 input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
+.range-scale{position:relative;height:16px;margin-top:5px}.range-scale button{position:absolute;top:0;padding:0;border:0;background:transparent;color:#7890aa;font:600 10px Sora;white-space:nowrap;transform:translateX(-50%)}.range-scale button:hover{border:0;background:transparent;color:var(--cyan)}
 .preview-card{position:sticky;top:20px;min-height:0}
 .preview-stage{display:grid;place-items:center;aspect-ratio:1/1;max-height:430px;margin-top:14px;border:1px solid #344257;border-radius:10px;overflow:hidden;background-color:#111821;background-image:linear-gradient(45deg,#1d2734 25%,transparent 25%),linear-gradient(-45deg,#1d2734 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1d2734 75%),linear-gradient(-45deg,transparent 75%,#1d2734 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
-.preview-stage img{display:none;width:100%;height:100%;object-fit:contain}
+.preview-stage img{display:none;width:100%;height:100%;object-fit:contain;translate:var(--shake-x,0px) calc(var(--bounce-y,0px) + var(--shake-y,0px));rotate:var(--shake-rotation,0deg)}
 .preview-empty{color:var(--muted);padding:24px;text-align:center;line-height:1.5}
 .preview-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;color:var(--muted);font-size:12px}
 .preview-footer>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .state-pill{border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;padding:5px 8px;text-transform:uppercase}
 .tag{display:inline-block;margin-top:16px;border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;letter-spacing:.04em;padding:5px 8px;text-transform:uppercase}
+.effect-stack{display:grid;gap:12px}.effect-card{min-height:0}.effect-card[hidden]{display:none}
+.effect-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.effect-heading h3{margin:0}.effect-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.effect-tools button{padding:7px 10px}.effect-body[hidden]{display:none}.effect-body>p{margin-top:12px}
+.empty-effects{padding:28px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);text-align:center;line-height:1.6}
+.add-effect{margin-top:12px;width:100%}.modal-backdrop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.72)}.modal-backdrop[hidden]{display:none}.modal{width:min(720px,100%);max-height:calc(100vh - 48px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:20px;box-shadow:0 20px 70px rgba(0,0,0,.55)}.modal-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.modal-heading h2{margin:0}.effect-choice{display:grid;grid-template-columns:1fr auto;align-items:center;gap:18px;margin-top:12px;padding:16px;background:var(--raised);border:1px solid #344257;border-radius:12px;transition:opacity 120ms ease,border-color 120ms ease}.effect-choice h3{margin:0 0 6px}.effect-choice p{margin:0;color:var(--muted);line-height:1.5}.effect-choice.already-added{opacity:.48;border-color:var(--border)}.effect-choice.already-added button{min-width:116px}
+@property --breath-x{syntax:'<number>';inherits:false;initial-value:1}@property --breath-y{syntax:'<number>';inherits:false;initial-value:1}.preview-stage img.breathing{transform-origin:50% 100%;animation:preview-breath var(--breath-cycle,2500ms) ease-in-out infinite;transition:--breath-x 180ms linear,--breath-y 180ms linear}@keyframes preview-breath{0%,100%{scale:1 1}50%{scale:var(--breath-x,.995) var(--breath-y,1.02)}}
+.preview-stage img.squashing{transform-origin:50% 100%}
 @media(max-width:920px){.settings-layout{grid-template-columns:1fr}.preview-card{position:static;grid-row:1}.preview-stage{max-height:340px}}
 @media(max-width:760px){.shell{padding:18px}.brand-header{margin-top:-6px}.brand-header img{height:110px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
 </style>
@@ -133,16 +140,27 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
   </section>
   <section class="panel page" data-page="effects" hidden>
     <h2>Effects</h2>
-    <p class="intro">Configure movement applied when microphone input triggers the reaction state.</p>
-    <article class="card">
-      <div class="range-heading"><h3 style="margin:0">Reaction bounce</h3><label style="margin:0"><input id="bounce-enabled" type="checkbox" checked> Enabled</label></div>
-      <p style="margin-top:12px">Lift the avatar once when speech begins. The existing idle float continues underneath the bounce.</p>
-      <div class="control-grid">
-        <div><div class="range-heading"><span>Bounce height</span><strong id="bounce-height-value">40 px</strong></div><input id="bounce-height" type="range" min="5" max="160" step="5" value="40"></div>
-        <div><div class="range-heading"><span>Bounce duration</span><strong id="bounce-duration-value">350 ms</strong></div><input id="bounce-duration" type="range" min="100" max="1200" step="50" value="350"></div>
-      </div>
-      <div class="setting-row"><span class="status">Preview applies to the local card and the renderer without changing the selected image state.</span><button class="primary" id="preview-bounce">Preview bounce</button></div>
-    </article>
+    <p class="intro">Build an ordered stack of movement and appearance effects. Disable an effect temporarily or remove it without affecting the others.</p>
+    <div class="effect-stack" id="effect-stack">
+      <article class="card effect-card" data-effect="bounce">
+        <div class="effect-heading"><h3>Reaction bounce</h3><div class="effect-tools"><label style="margin:0"><input id="bounce-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
+        <div class="effect-body"><p>Lift the avatar once when speech begins. Float and other active effects continue underneath the bounce.</p><div class="control-grid"><div><div class="range-heading"><span>Bounce intensity</span><strong id="bounce-height-value">Lively — 40 px</strong></div><input id="bounce-height" type="range" min="5" max="160" step="5" value="40"><div class="range-scale" data-range="bounce-height"><button data-value="5">Gentle</button><button data-value="55">Lively</button><button data-value="105">Springy</button><button data-value="160">Launch</button></div></div><div><div class="range-heading"><span>Bounce duration</span><strong id="bounce-duration-value">350 ms</strong></div><input id="bounce-duration" type="range" min="100" max="1200" step="50" value="350"></div></div><div class="setting-row"><span class="status">Preview applies to the local card and renderer without changing the selected image state.</span><button class="primary" id="preview-bounce">Preview bounce</button></div></div>
+      </article>
+      <article class="card effect-card" data-effect="breathing" hidden>
+        <div class="effect-heading"><h3>Breathing</h3><div class="effect-tools"><label style="margin:0"><input id="breathing-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
+        <div class="effect-body"><p>Apply subtle bottom-anchored expansion so the avatar breathes without sliding across the canvas.</p><div class="control-grid"><div><label for="breathing-mode">Applies during</label><select id="breathing-mode"><option value="0">Idle</option><option value="1" selected>Idle and reaction</option><option value="2">Reaction</option></select></div><div><div class="range-heading"><span>Cycle duration</span><strong id="breathing-cycle-value">2.5 s</strong></div><input id="breathing-cycle" type="range" min="500" max="10000" step="100" value="2500"></div><div><div class="range-heading"><span>Idle intensity</span><strong id="breathing-idle-value">Gentle — 2%</strong></div><input id="breathing-idle" type="range" min="0" max="100" step="1" value="20"><div class="range-scale" data-range="breathing-idle"><button data-value="0">Still</button><button data-value="20">Gentle</button><button data-value="60">Noticeable</button><button data-value="100">Dramatic</button></div></div><div><div class="range-heading"><span>Reaction intensity</span><strong id="breathing-reaction-value">Gentle — 3%</strong></div><input id="breathing-reaction" type="range" min="0" max="100" step="1" value="30"><div class="range-scale" data-range="breathing-reaction"><button data-value="0">Still</button><button data-value="20">Gentle</button><button data-value="60">Noticeable</button><button data-value="100">Dramatic</button></div></div></div></div>
+      </article>
+      <article class="card effect-card" data-effect="squash" hidden>
+        <div class="effect-heading"><h3>Squash and stretch</h3><div class="effect-tools"><label style="margin:0"><input id="squash-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
+        <div class="effect-body"><p>Squash, stretch, and settle the avatar from its bottom centre when speech begins.</p><div class="control-grid"><div><div class="range-heading"><span>Intensity</span><strong id="squash-intensity-value">Animated — 70%</strong></div><input id="squash-intensity" type="range" min="0" max="300" step="1" value="70"><div class="range-scale" data-range="squash-intensity"><button data-value="0">Subtle</button><button data-value="40">Animated</button><button data-value="100">Cartoon</button><button data-value="200">Absurd</button></div></div><div><div class="range-heading"><span>Total duration</span><strong id="squash-duration-value">500 ms</strong></div><input id="squash-duration" type="range" min="200" max="1600" step="50" value="500"></div></div><div class="setting-row"><span class="status">Extreme values are deliberately cartoony while remaining safely bounded.</span><button class="primary" id="preview-squash">Preview squash and stretch</button></div></div>
+      </article>
+      <article class="card effect-card" data-effect="shake" hidden>
+        <div class="effect-heading"><h3>Shake</h3><div class="effect-tools"><label style="margin:0"><input id="shake-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
+        <div class="effect-body"><p>Continuously shake the avatar while microphone reaction is active, then settle smoothly in place.</p><div class="control-grid"><div><div class="range-heading"><span>Intensity</span><strong id="shake-intensity-value">Rattled — 70%</strong></div><input id="shake-intensity" type="range" min="0" max="300" step="1" value="70"><div class="range-scale" data-range="shake-intensity"><button data-value="0">Calm</button><button data-value="40">Rattled</button><button data-value="100">Chaotic</button><button data-value="200">Unhinged</button></div></div><div><div class="range-heading"><span>Speed</span><strong id="shake-speed-value">Quick — 4.5 Hz</strong></div><input id="shake-speed" type="range" min="8" max="120" step="1" value="45"><div class="range-scale" data-range="shake-speed"><button data-value="8">Slow</button><button data-value="35">Quick</button><button data-value="75">Frantic</button><button data-value="120">Turbo</button></div></div><div><label for="shake-direction">Direction</label><select id="shake-direction"><option value="0">Horizontal and vertical</option><option value="1">Horizontal only</option><option value="2">Vertical only</option></select></div><div><label>Rotation</label><label style="margin-top:12px"><input id="shake-wobble" type="checkbox" checked> Add rotation wobble</label></div></div><div class="setting-row"><span class="status">Preview runs for two seconds without changing the selected image state.</span><button class="primary" id="preview-shake">Preview shake</button></div></div>
+      </article>
+      <div class="empty-effects" id="empty-effects" hidden>No effects are configured. Add an effect to bring the avatar to life.</div>
+    </div>
+    <button class="primary add-effect" id="add-effect">+ Add effect</button>
   </section>
   <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Output controls will be added in a later approved stage.</p></section>
   <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">General controls will be added in a later approved stage.</p></section>
@@ -154,6 +172,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
   </aside>
   </div>
 </main>
+<div class="modal-backdrop" id="effect-modal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="effect-modal-title"><div class="modal-heading"><div><h2 id="effect-modal-title">Add effect</h2><p class="intro">Choose an effect to add to the current preset.</p></div><button id="close-effect-modal">Close</button></div><div class="effect-choice" data-choice="bounce"><div><h3>Reaction bounce</h3><p>Lift the avatar once whenever microphone input begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="breathing"><div><h3>Breathing</h3><p>Add continuous subtle expansion during idle, reaction, or both states.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="squash"><div><h3>Squash and stretch</h3><p>Add a bottom-anchored cartoon deformation whenever microphone reaction begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="shake"><div><h3>Shake</h3><p>Continuously rattle the avatar during microphone reaction and settle smoothly afterwards.</p></div><button class="primary">Add</button></div></div></div>
 <script>
 document.getElementById('close').onclick=()=>window.chrome.webview.postMessage('close-settings');
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
@@ -179,6 +198,24 @@ let bounceEnabled=true;
 let bounceHeight=40;
 let bounceDuration=350;
 let bounceAnimationFrame=0;
+let effectOrder=['bounce'];
+let breathingEnabled=true;
+let breathingMode=1;
+let breathingIdle=20;
+let breathingReaction=30;
+let breathingCycle=2500;
+let squashEnabled=true;
+let squashIntensity=70;
+let squashDuration=500;
+let squashAnimationFrame=0;
+let shakeEnabled=true;
+let shakeIntensity=70;
+let shakeSpeed=45;
+let shakeDirection=0;
+let shakeWobble=true;
+let shakeAnimationFrame=0;
+let shakePreviewUntil=0;
+let shakeMix=0;
 const previewReaction=document.getElementById('preview-reaction');
 const avatarPreview=document.getElementById('avatar-preview');
 const microphoneDevice=document.getElementById('microphone-device');
@@ -201,6 +238,8 @@ function updatePreview(){
     displayedPreviewUrl='';
     avatarPreview.removeAttribute('src');
   }
+  updateBreathingPreview();
+  if(manualReactionPreview||microphoneReaction)ensureShakePreview();
 }
 document.getElementById('choose-reaction').onclick=()=>{
   document.getElementById('reaction-status').textContent='Waiting for a PNG selection…';
@@ -281,8 +320,115 @@ blinkDuration.onchange=()=>window.chrome.webview.postMessage(`blink-duration\t${
 const bounceEnabledControl=document.getElementById('bounce-enabled');
 const bounceHeightControl=document.getElementById('bounce-height');
 const bounceDurationControl=document.getElementById('bounce-duration');
+const effectStack=document.getElementById('effect-stack');
+const emptyEffects=document.getElementById('empty-effects');
+const effectModal=document.getElementById('effect-modal');
+const breathingEnabledControl=document.getElementById('breathing-enabled');
+const breathingModeControl=document.getElementById('breathing-mode');
+const breathingIdleControl=document.getElementById('breathing-idle');
+const breathingReactionControl=document.getElementById('breathing-reaction');
+const breathingCycleControl=document.getElementById('breathing-cycle');
+const squashEnabledControl=document.getElementById('squash-enabled');
+const squashIntensityControl=document.getElementById('squash-intensity');
+const squashDurationControl=document.getElementById('squash-duration');
+const shakeEnabledControl=document.getElementById('shake-enabled');
+const shakeIntensityControl=document.getElementById('shake-intensity');
+const shakeSpeedControl=document.getElementById('shake-speed');
+const shakeDirectionControl=document.getElementById('shake-direction');
+const shakeWobbleControl=document.getElementById('shake-wobble');
+function effectCards(){return [...effectStack.querySelectorAll('.effect-card')].filter(card=>!card.hidden)}
+function updateEffectStackUi(post=false){
+  effectOrder=effectCards().map(card=>card.dataset.effect);
+  emptyEffects.hidden=effectOrder.length!==0;
+  document.querySelectorAll('.effect-choice').forEach(choice=>{
+    const active=effectOrder.includes(choice.dataset.choice);
+    const button=choice.querySelector('button');
+    choice.classList.toggle('already-added',active);
+    choice.setAttribute('aria-disabled',String(active));
+    button.disabled=active;
+    button.textContent=active?'Already added':'Add';
+  });
+  effectCards().forEach((card,index)=>{
+    card.querySelector('[data-move="up"]').disabled=index===0;
+    card.querySelector('[data-move="down"]').disabled=index===effectOrder.length-1;
+  });
+  updateBreathingPreview();
+  if(!effectOrder.includes('squash'))stopSquashPreview();
+  if(!effectOrder.includes('shake'))stopShakePreview();
+  else if(manualReactionPreview||microphoneReaction)ensureShakePreview();
+  if(post)window.chrome.webview.postMessage(`effect-stack\t${effectOrder.join(',')}`);
+}
+function applyEffectOrder(value){
+  effectOrder=value.split(',').filter(name=>name==='bounce'||name==='breathing'||name==='squash'||name==='shake');
+  document.querySelectorAll('.effect-card').forEach(card=>card.hidden=!effectOrder.includes(card.dataset.effect));
+  effectOrder.forEach(name=>effectStack.insertBefore(effectStack.querySelector(`[data-effect="${name}"]`),emptyEffects));
+  updateEffectStackUi(false);
+}
+document.getElementById('add-effect').onclick=()=>{effectModal.hidden=false;updateEffectStackUi(false)};
+document.getElementById('close-effect-modal').onclick=()=>effectModal.hidden=true;
+effectModal.onclick=event=>{if(event.target===effectModal)effectModal.hidden=true};
+document.querySelectorAll('.effect-choice').forEach(choice=>choice.querySelector('button').onclick=()=>{
+  if(effectOrder.includes(choice.dataset.choice))return;
+  const card=effectStack.querySelector(`[data-effect="${choice.dataset.choice}"]`);
+  card.hidden=false;
+  effectStack.insertBefore(card,emptyEffects);
+  effectModal.hidden=true;
+  updateEffectStackUi(true);
+});
+document.querySelectorAll('.effect-card').forEach(card=>{
+  card.querySelector('[data-collapse]').onclick=()=>{
+    const body=card.querySelector('.effect-body');
+    body.hidden=!body.hidden;
+    const control=card.querySelector('[data-collapse]');
+    control.textContent=body.hidden?'+':'−';
+    control.title=body.hidden?'Expand effect':'Collapse effect';
+  };
+  card.querySelector('[data-remove]').onclick=()=>{
+    if(!confirm(`Remove ${card.querySelector('h3').textContent}?`))return;
+    card.hidden=true;
+    updateEffectStackUi(true);
+  };
+  card.querySelector('[data-move="up"]').onclick=()=>{
+    const previous=card.previousElementSibling;
+    if(previous&&previous.classList.contains('effect-card'))effectStack.insertBefore(card,previous);
+    updateEffectStackUi(true);
+  };
+  card.querySelector('[data-move="down"]').onclick=()=>{
+    const next=card.nextElementSibling;
+    if(next&&next.classList.contains('effect-card'))effectStack.insertBefore(next,card);
+    updateEffectStackUi(true);
+  };
+});
+function updateBreathingUi(){
+  const label=value=>value===0?'Still':value<60?'Gentle':value<90?'Noticeable':'Dramatic';
+  const display=value=>`${label(Number(value))} — ${(Number(value)/10).toFixed(1).replace('.0','')}%`;
+  document.getElementById('breathing-idle-value').textContent=display(breathingIdleControl.value);
+  document.getElementById('breathing-reaction-value').textContent=display(breathingReactionControl.value);
+  document.getElementById('breathing-cycle-value').textContent=seconds(breathingCycleControl.value);
+}
+function updateBreathingPreview(){
+  const added=effectOrder.includes('breathing');
+  const reacting=manualReactionPreview||microphoneReaction;
+  const applies=breathingMode===1||(breathingMode===0&&!reacting)||(breathingMode===2&&reacting);
+  if(!added||!breathingEnabled||!applies){avatarPreview.classList.remove('breathing');return}
+  const amount=Number(reacting?breathingReaction:breathingIdle)/1000;
+  avatarPreview.style.setProperty('--breath-x',String(1-amount*.25));
+  avatarPreview.style.setProperty('--breath-y',String(1+amount));
+  avatarPreview.style.setProperty('--breath-cycle',`${breathingCycle}ms`);
+  avatarPreview.classList.add('breathing');
+}
+breathingEnabledControl.onchange=()=>{breathingEnabled=breathingEnabledControl.checked;updateBreathingPreview();window.chrome.webview.postMessage(`breathing-enabled\t${breathingEnabled?'1':'0'}`)};
+breathingModeControl.onchange=()=>{breathingMode=Number(breathingModeControl.value);updateBreathingPreview();window.chrome.webview.postMessage(`breathing-mode\t${breathingMode}`)};
+breathingIdleControl.oninput=()=>{breathingIdle=Number(breathingIdleControl.value);updateBreathingUi();updateBreathingPreview()};
+breathingReactionControl.oninput=()=>{breathingReaction=Number(breathingReactionControl.value);updateBreathingUi();updateBreathingPreview()};
+breathingCycleControl.oninput=()=>{breathingCycle=Number(breathingCycleControl.value);updateBreathingUi();updateBreathingPreview()};
+breathingIdleControl.onchange=()=>window.chrome.webview.postMessage(`breathing-idle\t${breathingIdleControl.value}`);
+breathingReactionControl.onchange=()=>window.chrome.webview.postMessage(`breathing-reaction\t${breathingReactionControl.value}`);
+breathingCycleControl.onchange=()=>window.chrome.webview.postMessage(`breathing-cycle\t${breathingCycleControl.value}`);
 function updateBounceUi(){
-  document.getElementById('bounce-height-value').textContent=`${bounceHeightControl.value} px`;
+  const value=Number(bounceHeightControl.value);
+  const label=value<55?'Gentle':value<105?'Lively':value<160?'Springy':'Launch';
+  document.getElementById('bounce-height-value').textContent=`${label} — ${value} px`;
   document.getElementById('bounce-duration-value').textContent=`${bounceDurationControl.value} ms`;
 }
 bounceEnabledControl.onchange=()=>{
@@ -296,22 +442,123 @@ bounceDurationControl.onchange=()=>window.chrome.webview.postMessage(`bounce-dur
 document.getElementById('preview-bounce').onclick=()=>window.chrome.webview.postMessage('preview-bounce');
 function startBouncePreview(){
   if(bounceAnimationFrame)cancelAnimationFrame(bounceAnimationFrame);
-  if(!bounceEnabled){avatarPreview.style.transform='';return}
+  if(!bounceEnabled||!effectOrder.includes('bounce')){avatarPreview.style.removeProperty('--bounce-y');return}
   const startedAt=performance.now();
   const animate=now=>{
     const elapsed=now-startedAt;
     if(!bounceEnabled||elapsed>=bounceDuration){
-      avatarPreview.style.transform='';
+      avatarPreview.style.removeProperty('--bounce-y');
       bounceAnimationFrame=0;
       return;
     }
     const previewHeight=document.querySelector('.preview-stage').clientHeight||0;
     const offset=-Math.sin(elapsed/bounceDuration*Math.PI)*bounceHeight*previewHeight/1080;
-    avatarPreview.style.transform=`translateY(${offset}px)`;
+    avatarPreview.style.setProperty('--bounce-y',`${offset}px`);
     bounceAnimationFrame=requestAnimationFrame(animate);
   };
   bounceAnimationFrame=requestAnimationFrame(animate);
 }
+function updateSquashUi(){
+  const value=Number(squashIntensityControl.value);
+  const label=value<40?'Subtle':value<100?'Animated':value<200?'Cartoon':'Absurd';
+  document.getElementById('squash-intensity-value').textContent=`${label} — ${value}%`;
+  document.getElementById('squash-duration-value').textContent=`${squashDurationControl.value} ms`;
+}
+function stopSquashPreview(){
+  if(squashAnimationFrame)cancelAnimationFrame(squashAnimationFrame);
+  squashAnimationFrame=0;
+  avatarPreview.classList.remove('squashing');
+  avatarPreview.style.transform='';
+}
+function startSquashPreview(){
+  stopSquashPreview();
+  if(!squashEnabled||!effectOrder.includes('squash'))return;
+  const startedAt=performance.now();
+  avatarPreview.classList.add('squashing');
+  const smooth=value=>{value=Math.max(0,Math.min(1,value));return value*value*(3-2*value)};
+  const animate=now=>{
+    const elapsed=now-startedAt;
+    if(!squashEnabled||elapsed>=squashDuration){stopSquashPreview();return}
+    const progress=elapsed/squashDuration;
+    const amount=squashIntensity/100;
+    let x=1,y=1;
+    if(progress<.22){const phase=smooth(progress/.22);x=1+.16*amount*phase;y=1-.12*amount*phase}
+    else if(progress<.48){const phase=smooth((progress-.22)/.26);x=1+(.16-.26*phase)*amount;y=1+(-.12+.34*phase)*amount}
+    else{const phase=smooth((progress-.48)/.52);x=1-.10*amount*(1-phase);y=1+.22*amount*(1-phase)}
+    avatarPreview.style.transform=`scale(${Math.max(.55,x)},${Math.max(.55,y)})`;
+    squashAnimationFrame=requestAnimationFrame(animate);
+  };
+  squashAnimationFrame=requestAnimationFrame(animate);
+}
+squashEnabledControl.onchange=()=>{squashEnabled=squashEnabledControl.checked;if(!squashEnabled)stopSquashPreview();window.chrome.webview.postMessage(`squash-enabled\t${squashEnabled?'1':'0'}`)};
+squashIntensityControl.oninput=()=>{squashIntensity=Number(squashIntensityControl.value);updateSquashUi()};
+squashDurationControl.oninput=()=>{squashDuration=Number(squashDurationControl.value);updateSquashUi()};
+squashIntensityControl.onchange=()=>window.chrome.webview.postMessage(`squash-intensity\t${squashIntensityControl.value}`);
+squashDurationControl.onchange=()=>window.chrome.webview.postMessage(`squash-duration\t${squashDurationControl.value}`);
+document.getElementById('preview-squash').onclick=()=>window.chrome.webview.postMessage('preview-squash');
+function updateShakeUi(){
+  const intensity=Number(shakeIntensityControl.value);
+  const intensityLabel=intensity<40?'Calm':intensity<100?'Rattled':intensity<200?'Chaotic':'Unhinged';
+  const speed=Number(shakeSpeedControl.value);
+  const speedLabel=speed<35?'Slow':speed<75?'Quick':speed<120?'Frantic':'Turbo';
+  document.getElementById('shake-intensity-value').textContent=`${intensityLabel} — ${intensity}%`;
+  document.getElementById('shake-speed-value').textContent=`${speedLabel} — ${(speed/10).toFixed(1)} Hz`;
+}
+function clearShakeTransform(){
+  avatarPreview.style.removeProperty('--shake-x');
+  avatarPreview.style.removeProperty('--shake-y');
+  avatarPreview.style.removeProperty('--shake-rotation');
+}
+function stopShakePreview(){
+  if(shakeAnimationFrame)cancelAnimationFrame(shakeAnimationFrame);
+  shakeAnimationFrame=0;
+  shakeMix=0;
+  clearShakeTransform();
+}
+function ensureShakePreview(){
+  if(shakeAnimationFrame||!shakeEnabled||!effectOrder.includes('shake'))return;
+  let previous=performance.now();
+  const animate=now=>{
+    const active=shakeEnabled&&effectOrder.includes('shake')&&(microphoneReaction||manualReactionPreview||now<shakePreviewUntil);
+    const elapsed=Math.min(250,now-previous);previous=now;
+    const blend=Math.min(1,elapsed/(active?60:160));
+    shakeMix+=(Number(active)-shakeMix)*blend;
+    if(!active&&shakeMix<.0001){stopShakePreview();return}
+    const amount=shakeIntensity/100;
+    const phase=now*(shakeSpeed/10)*.00628318530718;
+    const previewHeight=document.querySelector('.preview-stage').clientHeight||0;
+    const amplitude=12*amount*shakeMix*previewHeight/1080;
+    const x=shakeDirection===2?0:(Math.sin(phase)*.68+Math.sin(phase*2.13+1.4)*.32)*amplitude;
+    const y=shakeDirection===1?0:(Math.sin(phase*1.37+2.1)*.72+Math.sin(phase*2.71)*.28)*amplitude;
+    const rotation=shakeWobble?Math.sin(phase*1.17+.8)*amount*shakeMix*1.5:0;
+    avatarPreview.style.setProperty('--shake-x',`${x}px`);
+    avatarPreview.style.setProperty('--shake-y',`${y}px`);
+    avatarPreview.style.setProperty('--shake-rotation',`${rotation}deg`);
+    shakeAnimationFrame=requestAnimationFrame(animate);
+  };
+  shakeAnimationFrame=requestAnimationFrame(animate);
+}
+shakeEnabledControl.onchange=()=>{shakeEnabled=shakeEnabledControl.checked;if(shakeEnabled)ensureShakePreview();else stopShakePreview();window.chrome.webview.postMessage(`shake-enabled\t${shakeEnabled?'1':'0'}`)};
+shakeIntensityControl.oninput=()=>{shakeIntensity=Number(shakeIntensityControl.value);updateShakeUi()};
+shakeSpeedControl.oninput=()=>{shakeSpeed=Number(shakeSpeedControl.value);updateShakeUi()};
+shakeDirectionControl.onchange=()=>{shakeDirection=Number(shakeDirectionControl.value);window.chrome.webview.postMessage(`shake-direction\t${shakeDirection}`)};
+shakeWobbleControl.onchange=()=>{shakeWobble=shakeWobbleControl.checked;window.chrome.webview.postMessage(`shake-wobble\t${shakeWobble?'1':'0'}`)};
+shakeIntensityControl.onchange=()=>window.chrome.webview.postMessage(`shake-intensity\t${shakeIntensityControl.value}`);
+shakeSpeedControl.onchange=()=>window.chrome.webview.postMessage(`shake-speed\t${shakeSpeedControl.value}`);
+document.getElementById('preview-shake').onclick=()=>window.chrome.webview.postMessage('preview-shake');
+document.querySelectorAll('.range-scale').forEach(scale=>{
+  const control=document.getElementById(scale.dataset.range);
+  scale.querySelectorAll('button').forEach(marker=>{
+    const percent=(Number(marker.dataset.value)-Number(control.min))/(Number(control.max)-Number(control.min))*100;
+    marker.style.left=`${percent}%`;
+    marker.style.transform=percent===0?'none':percent===100?'translateX(-100%)':'translateX(-50%)';
+    marker.onclick=()=>{
+      control.value=marker.dataset.value;
+      control.dispatchEvent(new Event('input'));
+      control.dispatchEvent(new Event('change'));
+    };
+  });
+});
 microphoneDevice.onchange=()=>{
   document.getElementById('microphone-status').textContent='Connecting…';
   window.chrome.webview.postMessage(`select-microphone\t${microphoneDevice.value}`);
@@ -489,6 +736,66 @@ window.chrome.webview.addEventListener('message',event=>{
     updateBounceUi();
   }else if(type==='bounce-triggered'){
     startBouncePreview();
+  }else if(type==='effect-stack'){
+    applyEffectOrder(value);
+  }else if(type==='breathing-enabled'){
+    breathingEnabled=value==='1';
+    breathingEnabledControl.checked=breathingEnabled;
+    updateBreathingPreview();
+  }else if(type==='breathing-mode'){
+    breathingMode=Number(value);
+    breathingModeControl.value=value;
+    updateBreathingPreview();
+  }else if(type==='breathing-idle'){
+    breathingIdle=Number(value);
+    breathingIdleControl.value=value;
+    updateBreathingUi();
+    updateBreathingPreview();
+  }else if(type==='breathing-reaction'){
+    breathingReaction=Number(value);
+    breathingReactionControl.value=value;
+    updateBreathingUi();
+    updateBreathingPreview();
+  }else if(type==='breathing-cycle'){
+    breathingCycle=Number(value);
+    breathingCycleControl.value=value;
+    updateBreathingUi();
+    updateBreathingPreview();
+  }else if(type==='squash-enabled'){
+    squashEnabled=value==='1';
+    squashEnabledControl.checked=squashEnabled;
+    if(!squashEnabled)stopSquashPreview();
+  }else if(type==='squash-intensity'){
+    squashIntensity=Number(value);
+    squashIntensityControl.value=value;
+    updateSquashUi();
+  }else if(type==='squash-duration'){
+    squashDuration=Number(value);
+    squashDurationControl.value=value;
+    updateSquashUi();
+  }else if(type==='squash-triggered'){
+    startSquashPreview();
+  }else if(type==='shake-enabled'){
+    shakeEnabled=value==='1';
+    shakeEnabledControl.checked=shakeEnabled;
+    if(!shakeEnabled)stopShakePreview();
+  }else if(type==='shake-intensity'){
+    shakeIntensity=Number(value);
+    shakeIntensityControl.value=value;
+    updateShakeUi();
+  }else if(type==='shake-speed'){
+    shakeSpeed=Number(value);
+    shakeSpeedControl.value=value;
+    updateShakeUi();
+  }else if(type==='shake-direction'){
+    shakeDirection=Number(value);
+    shakeDirectionControl.value=value;
+  }else if(type==='shake-wobble'){
+    shakeWobble=value==='1';
+    shakeWobbleControl.checked=shakeWobble;
+  }else if(type==='shake-preview-triggered'){
+    shakePreviewUntil=performance.now()+2000;
+    ensureShakePreview();
   }
   updatePreview();
 });

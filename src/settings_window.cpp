@@ -210,6 +210,71 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsPreviewBounceMessage,
                                                              0, 0);
+                                            else if (wcsncmp(message, L"effect-stack\t", 13) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsEffectStackMessage,
+                                                             0, reinterpret_cast<LPARAM>(
+                                                                    new std::wstring(message + 13)));
+                                            else if (wcsncmp(message, L"breathing-enabled\t", 18) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBreathingEnabledMessage,
+                                                             wcscmp(message + 18, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"breathing-mode\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBreathingModeMessage,
+                                                             wcstoul(message + 15, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"breathing-idle\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBreathingIdleMessage,
+                                                             wcstoul(message + 15, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"breathing-reaction\t", 19) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBreathingReactionMessage,
+                                                             wcstoul(message + 19, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"breathing-cycle\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBreathingCycleMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"squash-enabled\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsSquashEnabledMessage,
+                                                             wcscmp(message + 15, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"squash-intensity\t", 17) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsSquashIntensityMessage,
+                                                             wcstoul(message + 17, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"squash-duration\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsSquashDurationMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcscmp(message, L"preview-squash") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPreviewSquashMessage,
+                                                             0, 0);
+                                            else if (wcsncmp(message, L"shake-enabled\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsShakeEnabledMessage,
+                                                             wcscmp(message + 14, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"shake-intensity\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsShakeIntensityMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"shake-speed\t", 12) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsShakeSpeedMessage,
+                                                             wcstoul(message + 12, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"shake-direction\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsShakeDirectionMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"shake-wobble\t", 13) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsShakeWobbleMessage,
+                                                             wcscmp(message + 13, L"1") == 0, 0);
+                                            else if (wcscmp(message, L"preview-shake") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPreviewShakeMessage,
+                                                             0, 0);
                                             else if (wcscmp(message, L"calibrate-noise") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsCalibrateNoiseMessage,
