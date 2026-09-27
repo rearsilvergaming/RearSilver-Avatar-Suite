@@ -1,0 +1,3 @@
+#include "resource.h"
+
+IDI_REARSILVER_AVATAR_SUITE ICON "../assets/Branding/rearsilver-avatar-suite.ico"

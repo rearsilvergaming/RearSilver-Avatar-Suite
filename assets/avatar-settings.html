@@ -3,13 +3,15 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>RearSilver Avatar Settings</title>
+<title>RearSilver Avatar Suite Settings</title>
 <style>
 @font-face{font-family:Sora;src:url('Sora-Variable.ttf') format('truetype');font-weight:100 800;font-display:swap}
 *{box-sizing:border-box}
 :root{color-scheme:dark;--bg:#0b0f14;--surface:#111821;--raised:#17202c;--border:#303b4a;--text:#e6e8eb;--muted:#9db0c7;--cyan:#00d4ff;--cyan-dark:#075166}
 body{margin:0;background:var(--bg);color:var(--text);font:14px Sora,Segoe UI,sans-serif}
 .shell{min-height:100vh;padding:26px 30px}
+.brand-header{display:flex;justify-content:center;align-items:center;margin:-10px 0 18px;overflow:hidden}
+.brand-header img{display:block;height:170px;max-width:100%;object-fit:contain}
 .hero{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:22px}
 h1{font-size:28px;margin:0 0 7px}.hero p,.intro{color:var(--muted);line-height:1.55;margin:0}
 button{border:1px solid var(--border);border-radius:9px;background:#1e2430;color:var(--text);font:700 13px Sora;padding:10px 14px;cursor:pointer}
@@ -48,19 +50,21 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .state-pill{border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;padding:5px 8px;text-transform:uppercase}
 .tag{display:inline-block;margin-top:16px;border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;letter-spacing:.04em;padding:5px 8px;text-transform:uppercase}
 @media(max-width:920px){.settings-layout{grid-template-columns:1fr}.preview-card{position:static;grid-row:1}.preview-stage{max-height:340px}}
-@media(max-width:760px){.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
+@media(max-width:760px){.shell{padding:18px}.brand-header{margin-top:-6px}.brand-header img{height:110px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
 </style>
 </head>
 <body>
 <main class="shell">
+  <div class="brand-header"><img src="settings-header.png" alt="RearSilver Avatar Suite"></div>
   <header class="hero">
-    <div><h1>Avatar Settings</h1><p>Configure RearSilver Avatar using the same familiar controls as Stream Suite.</p></div>
+    <div><h1>Avatar Suite Settings</h1><p>Configure RearSilver Avatar Suite using the same familiar controls as Stream Suite.</p></div>
     <button id="close">Close</button>
   </header>
-  <nav class="tabs" aria-label="Avatar Settings">
+  <nav class="tabs" aria-label="Avatar Suite Settings">
     <button class="tab active" data-page="avatar">Avatar</button>
     <button class="tab" data-page="microphone">Microphone</button>
     <button class="tab" data-page="blink">Blink</button>
+    <button class="tab" data-page="effects">Effects</button>
     <button class="tab" data-page="output">Output</button>
     <button class="tab" data-page="general">General</button>
   </nav>
@@ -73,16 +77,16 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
         <h3>Primary image</h3>
         <p>Choose the resting image shown while microphone input is below the reaction threshold.</p>
         <div class="setting-row">
-          <div class="file-state"><div class="file-name" id="avatar-file">Default avatar</div><div class="status" id="avatar-status">Using the built-in placeholder.</div></div>
-          <button class="primary" id="choose-avatar">Choose PNG…</button>
+          <div class="file-state"><div class="file-name" id="avatar-file">RearSilver mascot</div><div class="status" id="avatar-status">Using the bundled default.</div></div>
+          <div class="setting-actions"><button id="default-avatar">Use default</button><button class="primary" id="choose-avatar">Choose PNG…</button></div>
         </div>
         </article>
         <article class="card">
         <h3>Reaction image</h3>
         <p>Choose the image that will be shown when microphone input triggers the avatar.</p>
         <div class="setting-row">
-          <div class="file-state"><div class="file-name" id="reaction-file">No reaction image</div><div class="status" id="reaction-status">Choose an image to enable preview.</div></div>
-          <div class="setting-actions"><button id="choose-reaction">Choose PNG…</button><button class="primary" id="preview-reaction" disabled>Preview reaction</button></div>
+          <div class="file-state"><div class="file-name" id="reaction-file">RearSilver mascot reaction</div><div class="status" id="reaction-status">Using the bundled default.</div></div>
+          <div class="setting-actions"><button id="default-reaction">Use default</button><button id="choose-reaction">Choose PNG…</button><button class="primary" id="preview-reaction" disabled>Preview reaction</button></div>
         </div>
         </article>
       </div>
@@ -100,11 +104,20 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
       <div class="meter-scale"><span>Quiet</span><span id="microphone-status">Connecting…</span><span>Loud</span></div>
     </article>
     <article class="card" style="margin-top:12px">
+      <h3>Background noise calibration</h3>
+      <p>Measure the normal room noise, then keep reactions above it. Stay silent while the three-second calibration runs.</p>
+      <div class="control-grid">
+        <div><div class="range-heading"><span>Background noise floor</span><strong id="noise-floor-value">Not calibrated</strong></div><div class="status" id="noise-calibration-status" style="margin-top:12px">Use calibration while your usual fan and room noise are present.</div></div>
+        <div><div class="range-heading"><span>Sensitivity above noise</span><strong id="noise-sensitivity-value">+6%</strong></div><input id="noise-sensitivity" type="range" min="0" max="500" step="5" value="60"></div>
+      </div>
+      <div class="setting-row"><span class="status">Calibration changes detection only; microphone audio is never played or routed.</span><button class="primary" id="calibrate-noise">Calibrate background noise</button></div>
+    </article>
+    <article class="card" style="margin-top:12px">
       <h3>Reaction detection</h3>
       <p>Set how loud the selected input must be before the reaction image appears and how long it remains after speech ends.</p>
       <div class="control-grid">
         <div><div class="range-heading"><span>Reaction threshold</span><strong id="threshold-value">18%</strong></div><input id="reaction-threshold" type="range" min="1" max="1000" step="1" value="180"></div>
-        <div><div class="range-heading"><span>Release delay</span><strong id="release-value">250 ms</strong></div><input id="release-delay" type="range" min="0" max="2000" step="50" value="250"></div>
+        <div><div class="range-heading"><span>Release delay</span><strong id="release-value">100 ms</strong></div><input id="release-delay" type="range" min="0" max="2000" step="50" value="100"></div>
       </div>
       <div class="preview-footer"><span>Live avatar state</span><span class="state-pill" id="microphone-reaction-state">Primary</span></div>
     </article>
@@ -113,10 +126,23 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <h2>Blink</h2>
     <p class="intro">Choose optional closed-eye images and configure natural random blinking.</p>
     <div class="avatar-controls">
-      <article class="card"><h3>Primary blink image</h3><p>Used when the resting avatar blinks. The primary image remains visible when this is not set.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="primary-blink-file">No blink image</div><div class="status" id="primary-blink-status">Optional</div></div><button id="choose-primary-blink">Choose PNG…</button></div></article>
-      <article class="card"><h3>Reaction blink image</h3><p>Used when the reacting avatar blinks. The reaction image remains visible when this is not set.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="reaction-blink-file">No blink image</div><div class="status" id="reaction-blink-status">Optional</div></div><button id="choose-reaction-blink">Choose PNG…</button></div></article>
+      <article class="card"><h3>Primary blink image</h3><p>Used when the resting avatar blinks. The primary image remains visible when this is not set.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="primary-blink-file">No blink image</div><div class="status" id="primary-blink-status">Optional</div></div><div class="setting-actions"><button id="remove-primary-blink">Remove image</button><button id="choose-primary-blink">Choose PNG…</button></div></div></article>
+      <article class="card"><h3>Reaction blink image</h3><p>Used when the reacting avatar blinks. The reaction image remains visible when this is not set.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="reaction-blink-file">No blink image</div><div class="status" id="reaction-blink-status">Optional</div></div><div class="setting-actions"><button id="remove-reaction-blink">Remove image</button><button id="choose-reaction-blink">Choose PNG…</button></div></div></article>
       <article class="card"><div class="range-heading"><h3 style="margin:0">Blink timing</h3><label style="margin:0"><input id="blink-enabled" type="checkbox" checked> Enabled</label></div><div class="control-grid"><div><div class="range-heading"><span>Minimum interval</span><strong id="blink-minimum-value">3.0 s</strong></div><input id="blink-minimum" type="range" min="250" max="30000" step="250" value="3000"></div><div><div class="range-heading"><span>Maximum interval</span><strong id="blink-maximum-value">6.0 s</strong></div><input id="blink-maximum" type="range" min="250" max="30000" step="250" value="6000"></div><div><div class="range-heading"><span>Blink duration</span><strong id="blink-duration-value">150 ms</strong></div><input id="blink-duration" type="range" min="50" max="1000" step="25" value="150"></div></div></article>
     </div>
+  </section>
+  <section class="panel page" data-page="effects" hidden>
+    <h2>Effects</h2>
+    <p class="intro">Configure movement applied when microphone input triggers the reaction state.</p>
+    <article class="card">
+      <div class="range-heading"><h3 style="margin:0">Reaction bounce</h3><label style="margin:0"><input id="bounce-enabled" type="checkbox" checked> Enabled</label></div>
+      <p style="margin-top:12px">Lift the avatar once when speech begins. The existing idle float continues underneath the bounce.</p>
+      <div class="control-grid">
+        <div><div class="range-heading"><span>Bounce height</span><strong id="bounce-height-value">40 px</strong></div><input id="bounce-height" type="range" min="5" max="160" step="5" value="40"></div>
+        <div><div class="range-heading"><span>Bounce duration</span><strong id="bounce-duration-value">350 ms</strong></div><input id="bounce-duration" type="range" min="100" max="1200" step="50" value="350"></div>
+      </div>
+      <div class="setting-row"><span class="status">Preview applies to the local card and the renderer without changing the selected image state.</span><button class="primary" id="preview-bounce">Preview bounce</button></div>
+    </article>
   </section>
   <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Output controls will be added in a later approved stage.</p></section>
   <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">General controls will be added in a later approved stage.</p></section>
@@ -125,7 +151,6 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <h3>Avatar preview</h3>
     <p>Preview the selected image state locally without adding Settings to the OBS output.</p>
     <div class="preview-stage"><img id="avatar-preview" alt="Selected avatar preview"><div class="preview-empty" id="preview-empty">Choose a primary image to begin.</div></div>
-    <div class="preview-footer"><span id="preview-file">Built-in placeholder</span><span class="state-pill" id="preview-state">Primary</span></div>
   </aside>
   </div>
 </main>
@@ -140,6 +165,7 @@ document.getElementById('choose-avatar').onclick=()=>{
   document.getElementById('avatar-status').textContent='Waiting for a PNG selection…';
   window.chrome.webview.postMessage('choose-avatar-png');
 };
+document.getElementById('default-avatar').onclick=()=>window.chrome.webview.postMessage('use-default-primary');
 let reactionAvailable=false;
 let manualReactionPreview=false;
 let microphoneReaction=false;
@@ -148,6 +174,11 @@ let reactionPreviewUrl='';
 let primaryBlinkPreviewUrl='';
 let reactionBlinkPreviewUrl='';
 let blinking=false;
+let displayedPreviewUrl='';
+let bounceEnabled=true;
+let bounceHeight=40;
+let bounceDuration=350;
+let bounceAnimationFrame=0;
 const previewReaction=document.getElementById('preview-reaction');
 const avatarPreview=document.getElementById('avatar-preview');
 const microphoneDevice=document.getElementById('microphone-device');
@@ -161,18 +192,21 @@ function updatePreview(){
   const blinkUrl=reactionPreview?reactionBlinkPreviewUrl:primaryBlinkPreviewUrl;
   const useBlink=blinking&&Boolean(blinkUrl);
   const url=useBlink?blinkUrl:(reactionPreview?reactionPreviewUrl:primaryPreviewUrl);
-  const file=document.getElementById(useBlink?(reactionPreview?'reaction-blink-file':'primary-blink-file'):(reactionPreview?'reaction-file':'avatar-file')).textContent;
   avatarPreview.style.display=url?'block':'none';
   document.getElementById('preview-empty').style.display=url?'none':'block';
-  if(url)avatarPreview.src=url;
-  else avatarPreview.removeAttribute('src');
-  document.getElementById('preview-file').textContent=file;
-  document.getElementById('preview-state').textContent=`${reactionPreview?'Reaction':'Primary'}${useBlink?' blink':''}`;
+  if(url&&url!==displayedPreviewUrl){
+    displayedPreviewUrl=url;
+    avatarPreview.src=url;
+  }else if(!url&&displayedPreviewUrl){
+    displayedPreviewUrl='';
+    avatarPreview.removeAttribute('src');
+  }
 }
 document.getElementById('choose-reaction').onclick=()=>{
   document.getElementById('reaction-status').textContent='Waiting for a PNG selection…';
   window.chrome.webview.postMessage('choose-reaction-png');
 };
+document.getElementById('default-reaction').onclick=()=>window.chrome.webview.postMessage('use-default-reaction');
 previewReaction.onclick=()=>{
   if(!reactionAvailable)return;
   manualReactionPreview=!manualReactionPreview;
@@ -186,17 +220,47 @@ function setReactionAvailable(available){
 }
 const thresholdControl=document.getElementById('reaction-threshold');
 const releaseControl=document.getElementById('release-delay');
+const noiseSensitivityControl=document.getElementById('noise-sensitivity');
+const calibrateNoiseButton=document.getElementById('calibrate-noise');
+let calibrationTimer=0;
+function formatLevel(value){
+  const percent=Number(value)/10;
+  return `${percent.toFixed(1).replace('.0','')}%`;
+}
 function updateThresholdUi(){
   const percent=Number(thresholdControl.value)/10;
-  document.getElementById('threshold-value').textContent=`${percent.toFixed(1).replace('.0','')}%`;
+  document.getElementById('threshold-value').textContent=formatLevel(thresholdControl.value);
   document.getElementById('threshold-marker').style.left=`${percent}%`;
 }
 thresholdControl.oninput=updateThresholdUi;
 thresholdControl.onchange=()=>window.chrome.webview.postMessage(`reaction-threshold\t${thresholdControl.value}`);
 releaseControl.oninput=()=>document.getElementById('release-value').textContent=`${releaseControl.value} ms`;
 releaseControl.onchange=()=>window.chrome.webview.postMessage(`release-delay\t${releaseControl.value}`);
+noiseSensitivityControl.oninput=()=>document.getElementById('noise-sensitivity-value').textContent=`+${formatLevel(noiseSensitivityControl.value)}`;
+noiseSensitivityControl.onchange=()=>window.chrome.webview.postMessage(`noise-sensitivity\t${noiseSensitivityControl.value}`);
+calibrateNoiseButton.onclick=()=>window.chrome.webview.postMessage('calibrate-noise');
+function beginCalibrationUi(){
+  if(calibrationTimer)clearInterval(calibrationTimer);
+  const status=document.getElementById('noise-calibration-status');
+  const started=performance.now();
+  calibrateNoiseButton.disabled=true;
+  calibrationTimer=setInterval(()=>{
+    const remaining=Math.max(0,3-(performance.now()-started)/1000);
+    calibrateNoiseButton.textContent=`Stay silent… ${remaining.toFixed(1)} s`;
+    status.textContent='Measuring the current background noise.';
+  },100);
+}
+function finishCalibrationUi(){
+  if(calibrationTimer)clearInterval(calibrationTimer);
+  calibrationTimer=0;
+  calibrateNoiseButton.disabled=false;
+  calibrateNoiseButton.textContent='Calibrate background noise';
+  document.getElementById('noise-calibration-status').textContent='Calibration complete. The reaction threshold has been updated.';
+}
 document.getElementById('choose-primary-blink').onclick=()=>window.chrome.webview.postMessage('choose-primary-blink');
 document.getElementById('choose-reaction-blink').onclick=()=>window.chrome.webview.postMessage('choose-reaction-blink');
+document.getElementById('remove-primary-blink').onclick=()=>window.chrome.webview.postMessage('remove-primary-blink');
+document.getElementById('remove-reaction-blink').onclick=()=>window.chrome.webview.postMessage('remove-reaction-blink');
 const blinkEnabled=document.getElementById('blink-enabled');
 const blinkMinimum=document.getElementById('blink-minimum');
 const blinkMaximum=document.getElementById('blink-maximum');
@@ -214,6 +278,40 @@ blinkDuration.oninput=updateBlinkUi;
 blinkMinimum.onchange=()=>window.chrome.webview.postMessage(`blink-minimum\t${blinkMinimum.value}`);
 blinkMaximum.onchange=()=>window.chrome.webview.postMessage(`blink-maximum\t${blinkMaximum.value}`);
 blinkDuration.onchange=()=>window.chrome.webview.postMessage(`blink-duration\t${blinkDuration.value}`);
+const bounceEnabledControl=document.getElementById('bounce-enabled');
+const bounceHeightControl=document.getElementById('bounce-height');
+const bounceDurationControl=document.getElementById('bounce-duration');
+function updateBounceUi(){
+  document.getElementById('bounce-height-value').textContent=`${bounceHeightControl.value} px`;
+  document.getElementById('bounce-duration-value').textContent=`${bounceDurationControl.value} ms`;
+}
+bounceEnabledControl.onchange=()=>{
+  bounceEnabled=bounceEnabledControl.checked;
+  window.chrome.webview.postMessage(`bounce-enabled\t${bounceEnabled?'1':'0'}`);
+};
+bounceHeightControl.oninput=()=>{bounceHeight=Number(bounceHeightControl.value);updateBounceUi()};
+bounceDurationControl.oninput=()=>{bounceDuration=Number(bounceDurationControl.value);updateBounceUi()};
+bounceHeightControl.onchange=()=>window.chrome.webview.postMessage(`bounce-height\t${bounceHeightControl.value}`);
+bounceDurationControl.onchange=()=>window.chrome.webview.postMessage(`bounce-duration\t${bounceDurationControl.value}`);
+document.getElementById('preview-bounce').onclick=()=>window.chrome.webview.postMessage('preview-bounce');
+function startBouncePreview(){
+  if(bounceAnimationFrame)cancelAnimationFrame(bounceAnimationFrame);
+  if(!bounceEnabled){avatarPreview.style.transform='';return}
+  const startedAt=performance.now();
+  const animate=now=>{
+    const elapsed=now-startedAt;
+    if(!bounceEnabled||elapsed>=bounceDuration){
+      avatarPreview.style.transform='';
+      bounceAnimationFrame=0;
+      return;
+    }
+    const previewHeight=document.querySelector('.preview-stage').clientHeight||0;
+    const offset=-Math.sin(elapsed/bounceDuration*Math.PI)*bounceHeight*previewHeight/1080;
+    avatarPreview.style.transform=`translateY(${offset}px)`;
+    bounceAnimationFrame=requestAnimationFrame(animate);
+  };
+  bounceAnimationFrame=requestAnimationFrame(animate);
+}
 microphoneDevice.onchange=()=>{
   document.getElementById('microphone-status').textContent='Connecting…';
   window.chrome.webview.postMessage(`select-microphone\t${microphoneDevice.value}`);
@@ -231,13 +329,11 @@ window.chrome.webview.addEventListener('message',event=>{
     document.getElementById('avatar-file').textContent=value;
     status.textContent='Loaded from your saved settings.';
   }else if(type==='avatar-image-default'){
-    primaryPreviewUrl='';
-    document.getElementById('avatar-file').textContent='Default avatar';
-    status.textContent='Using the built-in placeholder.';
+    document.getElementById('avatar-file').textContent='RearSilver mascot';
+    status.textContent='Using the bundled default.';
   }else if(type==='avatar-image-unavailable'){
-    primaryPreviewUrl='';
     document.getElementById('avatar-file').textContent=value||'Saved image unavailable';
-    status.textContent='The saved file could not be loaded. Using the built-in placeholder.';
+    status.textContent='The saved file could not be loaded. Using the bundled default.';
   }else if(type==='avatar-image-cancelled'){
     status.textContent='Selection cancelled. The current avatar is unchanged.';
   }else if(type==='avatar-image-error'){
@@ -254,16 +350,14 @@ window.chrome.webview.addEventListener('message',event=>{
     document.getElementById('reaction-file').textContent=value;
     setReactionAvailable(true);
     document.getElementById('reaction-status').textContent='Loaded from your saved settings.';
-  }else if(type==='reaction-image-empty'){
-    reactionPreviewUrl='';
-    document.getElementById('reaction-file').textContent='No reaction image';
-    setReactionAvailable(false);
-    document.getElementById('reaction-status').textContent='Choose an image to enable preview.';
+  }else if(type==='reaction-image-default'){
+    document.getElementById('reaction-file').textContent='RearSilver mascot reaction';
+    setReactionAvailable(true);
+    document.getElementById('reaction-status').textContent='Using the bundled default.';
   }else if(type==='reaction-image-unavailable'){
-    reactionPreviewUrl='';
     document.getElementById('reaction-file').textContent=value||'Saved image unavailable';
-    setReactionAvailable(false);
-    document.getElementById('reaction-status').textContent='The saved file could not be loaded.';
+    setReactionAvailable(true);
+    document.getElementById('reaction-status').textContent='The saved file could not be loaded. Using the bundled default.';
   }else if(type==='reaction-image-cancelled'){
     document.getElementById('reaction-status').textContent='Selection cancelled. The current reaction image is unchanged.';
   }else if(type==='reaction-image-error'){
@@ -321,6 +415,15 @@ window.chrome.webview.addEventListener('message',event=>{
   }else if(type==='release-delay'){
     releaseControl.value=value;
     document.getElementById('release-value').textContent=`${value} ms`;
+  }else if(type==='noise-floor'){
+    document.getElementById('noise-floor-value').textContent=formatLevel(value);
+  }else if(type==='noise-sensitivity'){
+    noiseSensitivityControl.value=value;
+    document.getElementById('noise-sensitivity-value').textContent=`+${formatLevel(value)}`;
+  }else if(type==='noise-calibration-started'){
+    beginCalibrationUi();
+  }else if(type==='noise-calibration-complete'){
+    finishCalibrationUi();
   }else if(type==='microphone-reaction-on'){
     microphoneReaction=true;
     document.getElementById('microphone-reaction-state').textContent='Reaction';
@@ -373,6 +476,19 @@ window.chrome.webview.addEventListener('message',event=>{
   }else if(type==='blink-duration'){
     blinkDuration.value=value;
     updateBlinkUi();
+  }else if(type==='bounce-enabled'){
+    bounceEnabled=value==='1';
+    bounceEnabledControl.checked=bounceEnabled;
+  }else if(type==='bounce-height'){
+    bounceHeight=Number(value);
+    bounceHeightControl.value=value;
+    updateBounceUi();
+  }else if(type==='bounce-duration'){
+    bounceDuration=Number(value);
+    bounceDurationControl.value=value;
+    updateBounceUi();
+  }else if(type==='bounce-triggered'){
+    startBouncePreview();
   }
   updatePreview();
 });

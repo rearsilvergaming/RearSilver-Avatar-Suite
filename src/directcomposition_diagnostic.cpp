@@ -21,7 +21,7 @@ namespace {
 constexpr UINT kOutputWidth = 1920;
 constexpr UINT kOutputHeight = 1080;
 constexpr wchar_t kWindowClass[] = L"RearSilverDirectCompositionDiagnostic19";
-constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar - Diagnostic 19 - DirectComposition";
+constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar Suite - Diagnostic 19 - DirectComposition";
 constexpr UINT kRenderFailureMessage = WM_APP + 19;
 
 HWND g_window = nullptr;

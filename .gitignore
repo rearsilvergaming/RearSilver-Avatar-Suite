@@ -28,6 +28,12 @@ Makefile
 *.log
 *.tmp
 
+# Local branding source files and generated-image working assets
+*.ai
+*.psd
+*ChatGPT*
+*chatgpt*
+
 # Local recovery folders from correcting the initial repository location
 .git-misplaced-backup/
 .git-wrapper-recovery/

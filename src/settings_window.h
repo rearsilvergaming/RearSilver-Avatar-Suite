@@ -15,6 +15,16 @@ constexpr UINT kAvatarSettingsBlinkEnabledMessage = WM_APP + 19;
 constexpr UINT kAvatarSettingsBlinkMinimumMessage = WM_APP + 22;
 constexpr UINT kAvatarSettingsBlinkMaximumMessage = WM_APP + 23;
 constexpr UINT kAvatarSettingsBlinkDurationMessage = WM_APP + 24;
+constexpr UINT kAvatarSettingsBounceEnabledMessage = WM_APP + 25;
+constexpr UINT kAvatarSettingsBounceHeightMessage = WM_APP + 26;
+constexpr UINT kAvatarSettingsBounceDurationMessage = WM_APP + 27;
+constexpr UINT kAvatarSettingsPreviewBounceMessage = WM_APP + 28;
+constexpr UINT kAvatarSettingsCalibrateNoiseMessage = WM_APP + 29;
+constexpr UINT kAvatarSettingsNoiseSensitivityMessage = WM_APP + 30;
+constexpr UINT kAvatarSettingsUseDefaultPrimaryMessage = WM_APP + 31;
+constexpr UINT kAvatarSettingsUseDefaultReactionMessage = WM_APP + 32;
+constexpr UINT kAvatarSettingsRemovePrimaryBlinkMessage = WM_APP + 33;
+constexpr UINT kAvatarSettingsRemoveReactionBlinkMessage = WM_APP + 34;
 
 bool showAvatarSettingsWindow(HWND owner);
 bool isAvatarSettingsWindowVisible();

@@ -1,4 +1,5 @@
 #include "settings_window.h"
+#include "resource.h"
 #include <objidl.h>
 #include <shobjidl.h>
 #include <WebView2.h>
@@ -12,7 +13,7 @@ using Microsoft::WRL::ComPtr;
 
 namespace {
 constexpr wchar_t kSettingsClass[] = L"RearSilverAvatarSettingsWindow";
-constexpr wchar_t kSettingsTitle[] = L"RearSilver Avatar Settings";
+constexpr wchar_t kSettingsTitle[] = L"RearSilver Avatar Suite Settings";
 HWND g_settingsWindow = nullptr;
 HWND g_ownerWindow = nullptr;
 ComPtr<ICoreWebView2Controller> g_controller;
@@ -136,6 +137,14 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChooseReactionPngMessage,
                                                              0, reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcscmp(message, L"use-default-primary") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsUseDefaultPrimaryMessage,
+                                                             0, 0);
+                                            else if (wcscmp(message, L"use-default-reaction") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsUseDefaultReactionMessage,
+                                                             0, 0);
                                             else if (wcsncmp(message, L"preview-reaction:", 17) == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsPreviewReactionMessage,
@@ -161,6 +170,14 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChooseReactionBlinkMessage,
                                                              0, reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcscmp(message, L"remove-primary-blink") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsRemovePrimaryBlinkMessage,
+                                                             0, 0);
+                                            else if (wcscmp(message, L"remove-reaction-blink") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsRemoveReactionBlinkMessage,
+                                                             0, 0);
                                             else if (wcsncmp(message, L"blink-enabled\t", 14) == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsBlinkEnabledMessage,
@@ -177,6 +194,30 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsBlinkDurationMessage,
                                                              wcstoul(message + 15, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"bounce-enabled\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBounceEnabledMessage,
+                                                             wcscmp(message + 15, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"bounce-height\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBounceHeightMessage,
+                                                             wcstoul(message + 14, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"bounce-duration\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBounceDurationMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcscmp(message, L"preview-bounce") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPreviewBounceMessage,
+                                                             0, 0);
+                                            else if (wcscmp(message, L"calibrate-noise") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsCalibrateNoiseMessage,
+                                                             0, 0);
+                                            else if (wcsncmp(message, L"noise-sensitivity\t", 18) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsNoiseSensitivityMessage,
+                                                             wcstoul(message + 18, nullptr, 10), 0);
                                             CoTaskMemFree(message);
                                         }
                                         return S_OK;
@@ -210,6 +251,11 @@ bool showAvatarSettingsWindow(HWND owner)
         windowClass.lpfnWndProc = settingsWindowProcedure;
         windowClass.lpszClassName = kSettingsClass;
         windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        windowClass.hIcon = LoadIconW(windowClass.hInstance,
+            MAKEINTRESOURCEW(IDI_REARSILVER_AVATAR_SUITE));
+        windowClass.hIconSm = static_cast<HICON>(LoadImageW(windowClass.hInstance,
+            MAKEINTRESOURCEW(IDI_REARSILVER_AVATAR_SUITE), IMAGE_ICON,
+            GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
         windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
         RegisterClassExW(&windowClass);
         g_settingsWindow = CreateWindowExW(0, kSettingsClass, kSettingsTitle,

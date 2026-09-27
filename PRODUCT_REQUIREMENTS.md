@@ -1,16 +1,16 @@
-# RearSilver Avatar reconstruction requirements
+# RearSilver Avatar Suite reconstruction requirements
 
 This document is the authoritative product and reconstruction specification. The first reconstructed renderer is intentionally limited to the responsive overlay, image loading, basic motion, background modes, and OBS compatibility described below, but validating that renderer does not waive the stable-output requirement.
 
 ## Stable OBS output is the product goal
 
-- The OBS-facing composition has a stable configured width and height independent of the RearSilver Avatar application window.
-- A user may freely position, scale, crop, align, and optionally lock the RearSilver Avatar source in OBS. RearSilver must continue supplying the same intrinsic canvas underneath that OBS-owned transform.
+- The OBS-facing composition has a stable configured width and height independent of the RearSilver Avatar Suite application window.
+- A user may freely position, scale, crop, align, and optionally lock the RearSilver Avatar Suite source in OBS. RearSilver Avatar Suite must continue supplying the same intrinsic canvas underneath that OBS-owned transform.
 - Resizing, maximising, restoring, snapping, minimising, or repositioning the application window must not change the OBS source's native dimensions, effective scene scale, position, crop, alignment, or bounding geometry.
 - Locking a source in OBS does not protect its scene geometry when the source's native dimensions change. Therefore a dynamically client-sized source does not satisfy this requirement merely because the OBS item is locked.
 - A maximised application client area is not necessarily the monitor's full resolution. Window chrome and the taskbar can produce dimensions such as 1920×1009 on a 1920×1080 display; this must not become the stream source resolution.
 - The application window remains a freely resizable local preview and control surface. Its dimensions must not be authoritative for the stream composition.
-- Veadotube's window-following source behaviour is a compatibility reference only and is not RearSilver Avatar's target user experience.
+- Veadotube's window-following source behaviour is a compatibility reference only and is not RearSilver Avatar Suite's target user experience.
 - Direct Game Capture of a client-sized application swap chain remains a worst-case fallback only. Adopting it as product behaviour requires an explicit product decision; it must not silently replace the stable-output requirement.
 
 ## Application and rendering architecture
@@ -39,7 +39,7 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 
 ## Authoritative UI direction
 
-- RearSilver Avatar is a standalone companion product in the RearSilver Stream Suite family. Use the same core navigation and control language so users encounter familiar tabs, panels, buttons, typography, spacing, states, terminology, and cyan-accented dark visual treatment across both products.
+- RearSilver Avatar Suite is a standalone companion product in the RearSilver Stream Suite family. Use the same core navigation and control language so users encounter familiar tabs, panels, buttons, typography, spacing, states, terminology, and cyan-accented dark visual treatment across both products.
 - The Stream Suite settings pages and guided setup are the direct visual and behavioural references. Avatar-specific previews, meters, thumbnails, and icons may provide product identity without creating a separate interface language.
 - The floating collapsible sidebar and the temporary large D3D settings panel have been retired and removed. The renderer now contains only a small vertical quick-navigation rail; heavyweight settings belong to the owned WebView2 interface.
 - The normal focused renderer view uses a small vertical quick-navigation icon rail inside the fixed D3D composition. It may briefly appear in Game Capture while the user interacts directly with the renderer.
@@ -54,11 +54,59 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 - Closing Settings returns focus to the Avatar renderer without changing the avatar, animation phase, output canvas, background, or OBS transform.
 - Do not introduce a second renderer/output window, native Win32 settings dialog, or generic native control styling. The owned WebView2 Settings window is the authorised application-interface exception to the single-renderer-window rule.
 
+## Motion and reaction effects
+
+- Motion and effects are composited onto the same avatar transform and must apply consistently to primary, reaction, and blink image states without changing the fixed output canvas or OBS-owned geometry.
+- Idle effects planned for the product are float, breathing, and an optional darker idle appearance.
+- Microphone-reaction effects planned for the product are float, bounce, squash and stretch, shake, tilt, breathing, and an optional lighter reaction appearance.
+- The darker-idle/lighter-reaction option is a visual treatment for users who want an obvious speaking state without supplying a separate reaction image. It must work with one source image and must not require duplicated image assets.
+- Effect controls belong to the shared WebView2 Settings components so the guided setup can reuse them later.
+- Adding or changing an effect must not reset blink phase, interrupt microphone detection, create transform jumps between image states, or disturb DirectComposition and OBS output stability.
+
+## Microphone reaction detection
+
+- Microphone capture exists only to drive avatar state. RearSilver Avatar Suite must not play, monitor, record, route, or expose captured microphone audio to OBS.
+- Measure reaction input with a smoothed RMS-style loudness envelope rather than raw sample peaks so short clicks and background fluctuations do not dominate the detector or meter.
+- Provide a three-second background-noise calibration. The user remains silent while their normal room noise is present; Avatar stores the measured noise floor and positions the reaction threshold by a configurable sensitivity offset above it.
+- Preserve manual reaction-threshold and release-delay controls. Manual threshold changes and the displayed sensitivity offset must remain consistent with one another.
+- Open the reaction state immediately when the threshold is reached. Use a short release delay, approximately 100 ms by default, and small hysteresis to close naturally between words without flickering around the threshold.
+- Noise calibration and gating affect only avatar detection. They must not alter the selected Windows device, the audio available to other applications, or OBS audio configuration.
+
+## Layered avatar composition
+
+- Each preset supports up to 16 user-created ordered image layers around one fixed Primary avatar entry. Users add only the layers they need; the interface must not present sixteen permanently empty slots.
+- The layer list defines compositing order. Layers below Primary render behind the base avatar, and layers above Primary render in front. Users can reorder layers without re-exporting the complete avatar.
+- Intended uses include front and back hair, independently moving eyes, mouth states, clothing, hats, glasses, held props, redeem-specific overlays, tails, background elements, and foreground visual effects.
+- Every layer has a name, visibility state, order, local position, pivot or anchor, uniform scale, optional independent horizontal and vertical scale, rotation, opacity, and an option to inherit whole-avatar effects.
+- Artwork exported on the same canvas as the base avatar defaults to position `0,0`, scale `100%`, and matching alignment. Cropped layer artwork must support explicit position and pivot adjustment.
+- Compose transforms hierarchically. Apply each layer's local transform first, then the shared avatar-root transform and whole-avatar effects. Float, breathing, bounce, squash and stretch, shake, tilt, placement, and whole-avatar darkening or lightening must move or shade the assembled composition without separating aligned layers.
+- Whole-avatar darkening and lightening affect Primary and all visible layers uniformly by default. Individual layers may optionally override opacity or appearance for effects such as glowing eyes or illuminated props.
+- Layers may use a general purpose or an optional specialised purpose. Initial planned purposes are Generic, Eyes, Mouth, Tail, Accessory, Prop, and Effect. A purpose exposes relevant controls without changing the common ordered-layer renderer model.
+- Eyes may support bounded gaze position, movement range, speed, and return-to-centre behaviour. Future masking or clipping may constrain eye artwork to its socket; initial aligned artwork may use a deliberately limited movement range.
+- Tail layers may sit behind Primary and support a configurable attachment pivot, wag angle, speed, direction, easing, and optional reaction intensity while continuing to inherit avatar-root motion.
+- A layer may later provide idle and reaction image variants when a transform cannot represent the required artwork change. Static transparent layers remain the minimum supported form.
+- Layer transforms may be animated independently. Supported automation properties should include visibility, position, scale, rotation, and opacity, while named variants cover changes requiring different artwork.
+- Layer texture loading must respect GPU-memory limits. PNG file size is not a measure of decoded texture memory; the interface should report useful estimated memory consumption and avoid loading unused variants until required.
+
+## Future automation and event integration
+
+- RearSilver Avatar Suite should support temporary preset or avatar-state changes triggered by external events, then restore the prior state automatically after a configured duration.
+- Candidate triggers include Twitch channel-point redemptions, chat commands, subscriptions and other stream events routed through the user's automation tool; Stream Deck actions; and tools such as Streamer.bot, Mix It Up, and SAMMI.
+- Use a documented localhost WebSocket control interface as the core integration boundary so external tools can select a preset or avatar state; show, hide, transform, or select a variant for a layer; trigger an effect; specify timing; and request restoration without controlling the UI.
+- RearSilver Avatar Suite does not require direct Twitch authentication for this feature. Twitch and other platform events remain the responsibility of the user's existing stream bot or automation tool, which sends the corresponding local WebSocket command to Avatar Suite.
+- A temporary command may specify a transition duration, active duration, and restoration-transition duration. Avatar Suite owns those timers and restores the permanent state itself; external automation must not need to pause or schedule a later revert command.
+- Temporary changes need deterministic restoration and conflict handling. A newer command for the same property on the same layer replaces the earlier temporary override. Different properties and different layers may run concurrently. Expiry restores the latest permanent value rather than an obsolete captured value, and an expired earlier command must never overwrite a newer user or automation choice.
+- Commands may omit the active duration to remain in effect until changed or cancelled. A dedicated cancellation command restores the relevant permanent value immediately or with a requested transition.
+- Settings must provide a no-code WebSocket Action Builder. Users select the intended preset, state, effect, layer, property or variant; enter the value, transition, active duration, and restoration transition; test the action locally; and copy valid JSON without needing to understand or write code.
+- The Action Builder must present a plain-language summary of the generated behaviour, validation errors in ordinary language, the local WebSocket address, raw JSON for advanced use, and connection examples suitable for supported automation tools.
+- Users may save a tested action under a friendly name. External tools can then invoke that saved action with a short command while Avatar Suite owns its full behaviour, duration, transitions, restoration, and conflict handling.
+- External automation must not resize, suspend, re-parent, or otherwise disturb the renderer, fixed output canvas, animation continuity, or OBS-owned transform.
+
 ## Overlay visibility and focus
 
-- While the main RearSilver Avatar renderer window is active, its small quick-navigation overlay is visible locally and may be included in OBS Game Capture.
+- While the main RearSilver Avatar Suite renderer window is active, its small quick-navigation overlay is visible locally and may be included in OBS Game Capture.
 - When the main renderer window loses active-window status, including when the owned Settings window receives focus, hide the entire D3D overlay and leave only the avatar/background composition visible locally and in OBS.
-- Base quick-navigation visibility on activation of the main renderer window itself. Owned Settings and picker windows deliberately deactivate the renderer overlay even though they remain part of the RearSilver Avatar application.
+- Base quick-navigation visibility on activation of the main renderer window itself. Owned Settings and picker windows deliberately deactivate the renderer overlay even though they remain part of the RearSilver Avatar Suite application.
 - An owned file picker takes foreground status away from the avatar window, so the overlay must disappear while the picker is open.
 - Hiding the overlay must not change the avatar transform, animation, background, swap-chain dimensions, or OBS capture.
 

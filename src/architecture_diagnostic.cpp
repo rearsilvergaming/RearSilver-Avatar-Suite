@@ -639,7 +639,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 
     g_mainWindow = CreateWindowExW(
         0, mainClass.lpszClassName,
-        L"RearSilver Avatar - Architecture Diagnostic - Fixed 960x720 Capture",
+        L"RearSilver Avatar Suite - Architecture Diagnostic - Fixed 960x720 Capture",
         WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
         CW_USEDEFAULT, CW_USEDEFAULT, 1560, 900, nullptr, nullptr, instance, nullptr);
     if (!g_mainWindow)

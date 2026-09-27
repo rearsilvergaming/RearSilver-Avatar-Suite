@@ -1,6 +1,7 @@
 #include "audio_monitor.h"
 
 #include <audioclient.h>
+#include <endpointvolume.h>
 #include <ksmedia.h>
 #include <mmdeviceapi.h>
 #include <functiondiscoverykeys_devpkey.h>
@@ -14,7 +15,7 @@
 using Microsoft::WRL::ComPtr;
 
 namespace {
-float samplePeak(const BYTE *data, UINT32 frames, const WAVEFORMATEX *format)
+float sampleRms(const BYTE *data, UINT32 frames, const WAVEFORMATEX *format)
 {
     if (!data || !format || frames == 0)
         return 0.0f;
@@ -27,33 +28,40 @@ float samplePeak(const BYTE *data, UINT32 frames, const WAVEFORMATEX *format)
         floatingPoint = IsEqualGUID(extended->SubFormat, KSDATAFORMAT_SUBTYPE_IEEE_FLOAT);
         pcm = IsEqualGUID(extended->SubFormat, KSDATAFORMAT_SUBTYPE_PCM);
     }
-    float peak = 0.0f;
+    double sumSquares = 0.0;
     const size_t sampleCount = static_cast<size_t>(frames) * channels;
     if (floatingPoint && bits == 32) {
         const float *samples = reinterpret_cast<const float *>(data);
         for (size_t index = 0; index < sampleCount; ++index)
-            peak = std::max(peak, std::abs(samples[index]));
+            sumSquares += static_cast<double>(samples[index]) * samples[index];
     } else if (pcm && bits == 16) {
         const int16_t *samples = reinterpret_cast<const int16_t *>(data);
-        for (size_t index = 0; index < sampleCount; ++index)
-            peak = std::max(peak, std::abs(static_cast<float>(samples[index]) / 32768.0f));
+        for (size_t index = 0; index < sampleCount; ++index) {
+            const double sample = static_cast<double>(samples[index]) / 32768.0;
+            sumSquares += sample * sample;
+        }
     } else if (pcm && bits == 24) {
         for (size_t index = 0; index < sampleCount; ++index) {
             const BYTE *sample = data + index * 3;
             int32_t value = sample[0] | (sample[1] << 8) | (sample[2] << 16);
             if (value & 0x00800000)
                 value |= static_cast<int32_t>(0xff000000);
-            peak = std::max(peak, std::abs(static_cast<float>(value) / 8388608.0f));
+            const double normalized = static_cast<double>(value) / 8388608.0;
+            sumSquares += normalized * normalized;
         }
     } else if (pcm && bits == 32) {
         const int32_t *samples = reinterpret_cast<const int32_t *>(data);
-        for (size_t index = 0; index < sampleCount; ++index)
-            peak = std::max(peak, std::abs(static_cast<float>(samples[index]) / 2147483648.0f));
+        for (size_t index = 0; index < sampleCount; ++index) {
+            const double sample = static_cast<double>(samples[index]) / 2147483648.0;
+            sumSquares += sample * sample;
+        }
     } else if (pcm && bits == 8) {
-        for (size_t index = 0; index < sampleCount; ++index)
-            peak = std::max(peak, std::abs((static_cast<float>(data[index]) - 128.0f) / 128.0f));
+        for (size_t index = 0; index < sampleCount; ++index) {
+            const double sample = (static_cast<double>(data[index]) - 128.0) / 128.0;
+            sumSquares += sample * sample;
+        }
     }
-    return std::clamp(peak, 0.0f, 1.0f);
+    return std::clamp(static_cast<float>(std::sqrt(sumSquares / sampleCount)), 0.0f, 1.0f);
 }
 } // namespace
 
@@ -124,6 +132,7 @@ void AudioInputMonitor::run(std::wstring deviceId)
     ComPtr<IMMDevice> device;
     ComPtr<IAudioClient> client;
     ComPtr<IAudioCaptureClient> capture;
+    ComPtr<IAudioEndpointVolume> endpointVolume;
     WAVEFORMATEX *format = nullptr;
     HRESULT result = audioEvent ? CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr, CLSCTX_ALL,
                                                    IID_PPV_ARGS(&enumerator))
@@ -136,6 +145,9 @@ void AudioInputMonitor::run(std::wstring deviceId)
     if (SUCCEEDED(result))
         result = device->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr,
                                   reinterpret_cast<void **>(client.GetAddressOf()));
+    if (SUCCEEDED(result))
+        device->Activate(__uuidof(IAudioEndpointVolume), CLSCTX_ALL, nullptr,
+                         reinterpret_cast<void **>(endpointVolume.GetAddressOf()));
     if (SUCCEEDED(result))
         result = client->GetMixFormat(&format);
     if (SUCCEEDED(result))
@@ -154,6 +166,9 @@ void AudioInputMonitor::run(std::wstring deviceId)
         PostMessageW(notificationWindow_, kAudioMonitorStatusMessage, 1, 0);
         HANDLE events[] = {stopEvent_, audioEvent};
         bool captureFailed = false;
+        unsigned lastPostedLevel = ~0u;
+        ULONGLONG lastLevelPostAt = 0;
+        float smoothedRms = 0.0f;
         while (!captureFailed) {
             const DWORD waitResult = WaitForMultipleObjects(2, events, FALSE, 250);
             if (waitResult == WAIT_OBJECT_0)
@@ -162,7 +177,7 @@ void AudioInputMonitor::run(std::wstring deviceId)
                 captureFailed = true;
                 break;
             }
-            float peak = 0.0f;
+            float rms = 0.0f;
             UINT32 packetFrames = 0;
             HRESULT packetResult = capture->GetNextPacketSize(&packetFrames);
             while (SUCCEEDED(packetResult) && packetFrames > 0) {
@@ -174,14 +189,29 @@ void AudioInputMonitor::run(std::wstring deviceId)
                     break;
                 }
                 if (!(flags & AUDCLNT_BUFFERFLAGS_SILENT))
-                    peak = std::max(peak, samplePeak(data, frames, format));
+                    rms = std::max(rms, sampleRms(data, frames, format));
                 capture->ReleaseBuffer(frames);
                 packetResult = capture->GetNextPacketSize(&packetFrames);
             }
             if (FAILED(packetResult))
                 captureFailed = true;
-            const unsigned level = static_cast<unsigned>(std::sqrt(peak) * 1000.0f);
-            PostMessageW(notificationWindow_, kAudioMonitorLevelMessage, level, 0);
+            BOOL muted = FALSE;
+            if (endpointVolume)
+                endpointVolume->GetMute(&muted);
+            if (muted)
+                smoothedRms = 0.0f;
+            else
+                smoothedRms += (rms - smoothedRms) * 0.22f;
+            unsigned level = muted ? 0 : static_cast<unsigned>(std::sqrt(smoothedRms) * 1000.0f);
+            if (level < 10)
+                level = 0;
+            const ULONGLONG now = GetTickCount64();
+            const bool becameSilent = level == 0 && lastPostedLevel != 0;
+            if (becameSilent || lastLevelPostAt == 0 || now - lastLevelPostAt >= 50) {
+                PostMessageW(notificationWindow_, kAudioMonitorLevelMessage, level, 0);
+                lastPostedLevel = level;
+                lastLevelPostAt = now;
+            }
         }
         client->Stop();
         if (captureFailed) {

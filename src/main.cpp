@@ -12,11 +12,13 @@
 
 #include "settings_window.h"
 #include "audio_monitor.h"
+#include "resource.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
 #include <cstdio>
+#include <cstdint>
 #include <cstring>
 #include <deque>
 #include <mutex>
@@ -30,7 +32,7 @@ using Microsoft::WRL::ComPtr;
 namespace {
 
 constexpr wchar_t kWindowClass[] = L"RearSilverAvatarWindow";
-constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar";
+constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar Suite";
 constexpr UINT kRenderFailureMessage = WM_APP + 1;
 constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
 constexpr UINT kImageUploadSuccessMessage = WM_APP + 3;
@@ -44,6 +46,7 @@ std::atomic<bool> g_running{false};
 std::atomic<bool> g_applicationActive{true};
 std::atomic<bool> g_dialogOpen{false};
 std::atomic<bool> g_motionEnabled{true};
+std::atomic<bool> g_reactionsEnabled{true};
 std::atomic<int> g_backgroundMode{0};
 std::atomic<UINT> g_clientWidth{960};
 std::atomic<UINT> g_clientHeight{720};
@@ -65,6 +68,8 @@ struct PendingImage {
     UINT height = 0;
     std::wstring path;
     ImageSlot slot = ImageSlot::Primary;
+    bool persistSelection = true;
+    bool clearSlot = false;
 };
 
 std::mutex g_pendingImageMutex;
@@ -75,6 +80,8 @@ std::wstring g_primaryImagePath;
 bool g_primaryImageLoaded = false;
 std::wstring g_reactionImagePath;
 bool g_reactionImageLoaded = false;
+std::wstring g_defaultPrimaryImagePath;
+std::wstring g_defaultReactionImagePath;
 std::wstring g_primaryBlinkImagePath;
 bool g_primaryBlinkImageLoaded = false;
 std::wstring g_reactionBlinkImagePath;
@@ -83,7 +90,13 @@ std::atomic<bool> g_previewReaction{false};
 std::atomic<bool> g_microphoneReaction{false};
 std::atomic<bool> g_reactionAvailable{false};
 std::atomic<unsigned> g_reactionThreshold{180};
-std::atomic<unsigned> g_releaseDelayMs{250};
+std::atomic<unsigned> g_releaseDelayMs{100};
+std::atomic<unsigned> g_noiseFloor{0};
+std::atomic<unsigned> g_noiseSensitivity{60};
+bool g_noiseCalibrationActive = false;
+ULONGLONG g_noiseCalibrationStartedAt = 0;
+std::uint64_t g_noiseCalibrationSum = 0;
+unsigned g_noiseCalibrationSamples = 0;
 ULONGLONG g_lastAboveThreshold = 0;
 std::unique_ptr<AudioInputMonitor> g_audioMonitor;
 std::wstring g_selectedMicrophoneId;
@@ -93,6 +106,10 @@ std::atomic<bool> g_blinkEnabled{true};
 std::atomic<unsigned> g_blinkMinimumMs{3000};
 std::atomic<unsigned> g_blinkMaximumMs{6000};
 std::atomic<unsigned> g_blinkDurationMs{150};
+std::atomic<bool> g_bounceEnabled{true};
+std::atomic<unsigned> g_bounceHeightPixels{40};
+std::atomic<unsigned> g_bounceDurationMs{350};
+std::atomic<ULONGLONG> g_bounceStartedAt{0};
 
 struct RectF {
     float x = 0;
@@ -107,7 +124,9 @@ struct RectF {
 };
 
 struct UiLayout {
-    RectF avatar;
+    RectF presets;
+    RectF reactions;
+    RectF websocket;
     RectF settings;
 };
 
@@ -119,8 +138,10 @@ UiLayout calculateUiLayout(UINT, UINT, UINT dpi)
     const float iconSize = 44.0f * scale;
 
     UiLayout result;
-    result.avatar = {margin, margin, iconSize, iconSize};
-    result.settings = {margin, margin + iconSize + gap, iconSize, iconSize};
+    result.presets = {margin, margin, iconSize, iconSize};
+    result.reactions = {margin, margin + (iconSize + gap), iconSize, iconSize};
+    result.websocket = {margin, margin + 2.0f * (iconSize + gap), iconSize, iconSize};
+    result.settings = {margin, margin + 3.0f * (iconSize + gap), iconSize, iconSize};
     return result;
 }
 
@@ -153,7 +174,7 @@ void startLog()
     const std::wstring path = std::wstring(tempPath) + L"RearSilverAvatar-baseline.log";
     g_logFile = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    logMessage(L"RearSilver Avatar first reconstructed baseline starting");
+    logMessage(L"RearSilver Avatar Suite starting");
 }
 
 std::wstring settingsFilePath()
@@ -208,15 +229,28 @@ std::wstring fileNameFromPath(const std::wstring &path)
     return separator == std::wstring::npos ? path : path.substr(separator + 1);
 }
 
+std::wstring executableDirectory()
+{
+    wchar_t path[MAX_PATH]{};
+    const DWORD length = GetModuleFileNameW(nullptr, path, MAX_PATH);
+    std::wstring result(path, length);
+    const size_t separator = result.find_last_of(L"\\/");
+    return separator == std::wstring::npos ? L"." : result.substr(0, separator);
+}
+
 void sendPrimaryImageState()
 {
     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
     if (g_primaryImagePath.empty()) {
+        setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Primary),
+                                      g_defaultPrimaryImagePath);
         postAvatarSettingsMessage(L"avatar-image-default");
     } else if (g_primaryImageLoaded) {
         setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Primary), g_primaryImagePath);
         postAvatarSettingsMessage(L"avatar-image-current\t" + fileNameFromPath(g_primaryImagePath));
     } else {
+        setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Primary),
+                                      g_defaultPrimaryImagePath);
         postAvatarSettingsMessage(L"avatar-image-unavailable\t" + fileNameFromPath(g_primaryImagePath));
     }
 }
@@ -225,11 +259,15 @@ void sendReactionImageState()
 {
     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
     if (g_reactionImagePath.empty()) {
-        postAvatarSettingsMessage(L"reaction-image-empty");
+        setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction),
+                                      g_defaultReactionImagePath);
+        postAvatarSettingsMessage(L"reaction-image-default");
     } else if (g_reactionImageLoaded) {
         setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction), g_reactionImagePath);
         postAvatarSettingsMessage(L"reaction-image-current\t" + fileNameFromPath(g_reactionImagePath));
     } else {
+        setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction),
+                                      g_defaultReactionImagePath);
         postAvatarSettingsMessage(L"reaction-image-unavailable\t" + fileNameFromPath(g_reactionImagePath));
     }
 }
@@ -269,6 +307,21 @@ void sendBlinkSettings()
     postAvatarSettingsMessage(L"blink-duration\t" + std::to_wstring(g_blinkDurationMs.load()));
 }
 
+void sendBounceSettings()
+{
+    postAvatarSettingsMessage(g_bounceEnabled.load() ? L"bounce-enabled\t1" : L"bounce-enabled\t0");
+    postAvatarSettingsMessage(L"bounce-height\t" + std::to_wstring(g_bounceHeightPixels.load()));
+    postAvatarSettingsMessage(L"bounce-duration\t" + std::to_wstring(g_bounceDurationMs.load()));
+}
+
+void triggerReactionBounce()
+{
+    if (!g_bounceEnabled.load())
+        return;
+    g_bounceStartedAt.store(GetTickCount64());
+    postAvatarSettingsMessage(L"bounce-triggered");
+}
+
 void sendMicrophoneState()
 {
     const std::vector<AudioInputDevice> devices = enumerateAudioInputDevices();
@@ -286,23 +339,57 @@ void sendMicrophoneState()
                               std::to_wstring(g_reactionThreshold.load()));
     postAvatarSettingsMessage(L"release-delay\t" +
                               std::to_wstring(g_releaseDelayMs.load()));
+    postAvatarSettingsMessage(L"noise-floor\t" + std::to_wstring(g_noiseFloor.load()));
+    postAvatarSettingsMessage(L"noise-sensitivity\t" +
+                              std::to_wstring(g_noiseSensitivity.load()));
     postAvatarSettingsMessage(g_microphoneReaction.load() ? L"microphone-reaction-on"
                                                            : L"microphone-reaction-off");
 }
 
 void setMicrophoneReaction(bool active)
 {
-    active = active && g_reactionAvailable.load();
-    if (g_microphoneReaction.exchange(active) != active)
+    const bool previous = g_microphoneReaction.exchange(active);
+    if (previous != active) {
+        if (active)
+            triggerReactionBounce();
         postAvatarSettingsMessage(active ? L"microphone-reaction-on"
                                          : L"microphone-reaction-off");
+    }
 }
 
 void processMicrophoneLevel(unsigned level)
 {
-    const unsigned threshold = g_reactionThreshold.load();
-    const unsigned hysteresis = 30;
+    if (!g_reactionsEnabled.load()) {
+        setMicrophoneReaction(false);
+        return;
+    }
     const ULONGLONG now = GetTickCount64();
+    if (g_noiseCalibrationActive) {
+        g_noiseCalibrationSum += level;
+        ++g_noiseCalibrationSamples;
+        if (now - g_noiseCalibrationStartedAt >= 3000) {
+            const unsigned floor = g_noiseCalibrationSamples > 0
+                                       ? static_cast<unsigned>(g_noiseCalibrationSum /
+                                                               g_noiseCalibrationSamples)
+                                       : 0;
+            g_noiseFloor.store(std::clamp<unsigned>(floor, 0, 950));
+            g_reactionThreshold.store(std::clamp<unsigned>(
+                g_noiseFloor.load() + g_noiseSensitivity.load(), 1, 1000));
+            saveSetting(L"NoiseFloor", std::to_wstring(g_noiseFloor.load()));
+            saveSetting(L"NoiseSensitivity", std::to_wstring(g_noiseSensitivity.load()));
+            saveSetting(L"ReactionThreshold", std::to_wstring(g_reactionThreshold.load()));
+            g_noiseCalibrationActive = false;
+            postAvatarSettingsMessage(L"noise-floor\t" + std::to_wstring(g_noiseFloor.load()));
+            postAvatarSettingsMessage(L"noise-sensitivity\t" +
+                                      std::to_wstring(g_noiseSensitivity.load()));
+            postAvatarSettingsMessage(L"reaction-threshold\t" +
+                                      std::to_wstring(g_reactionThreshold.load()));
+            postAvatarSettingsMessage(L"noise-calibration-complete");
+        }
+        return;
+    }
+    const unsigned threshold = g_reactionThreshold.load();
+    const unsigned hysteresis = 20;
     if (level >= threshold) {
         g_lastAboveThreshold = now;
         setMicrophoneReaction(true);
@@ -527,7 +614,7 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
             postAvatarSettingsMessage(std::wstring(imageMessagePrefix(slot)) + L"-error");
             MessageBoxW(picker.hwndOwner,
                         L"Could not decode this image. Choose a valid PNG no larger than 8192 × 8192 pixels. The current avatar is unchanged.",
-                        L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
+                        L"RearSilver Avatar Suite — PNG loading", MB_OK | MB_ICONERROR);
         }
     } else if (CommDlgExtendedError() == 0) {
         postAvatarSettingsMessage(std::wstring(imageMessagePrefix(slot)) + L"-cancelled");
@@ -656,17 +743,27 @@ public:
         }
 
         try {
+            if (pending.clearSlot) {
+                if (pending.slot == ImageSlot::PrimaryBlink) {
+                    primaryBlinkAvatar_ = {};
+                    primaryBlinkAvatarLoaded_ = false;
+                } else if (pending.slot == ImageSlot::ReactionBlink) {
+                    reactionBlinkAvatar_ = {};
+                    reactionBlinkAvatarLoaded_ = false;
+                }
+                return;
+            }
             TextureAsset replacement = createTexture(pending.rgba.data(), pending.width, pending.height);
             if (pending.slot == ImageSlot::Reaction) {
                 reactionAvatar_ = std::move(replacement);
                 reactionAvatarLoaded_ = true;
                 g_reactionAvailable.store(true);
-                {
+                if (pending.persistSelection) {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_reactionImagePath = pending.path;
                     g_reactionImageLoaded = true;
+                    saveSetting(L"ReactionImage", pending.path);
                 }
-                saveSetting(L"ReactionImage", pending.path);
             } else if (pending.slot == ImageSlot::PrimaryBlink) {
                 primaryBlinkAvatar_ = std::move(replacement);
                 primaryBlinkAvatarLoaded_ = true;
@@ -687,15 +784,16 @@ public:
                 saveSetting(L"ReactionBlinkImage", pending.path);
             } else {
                 primaryAvatar_ = std::move(replacement);
-                {
+                if (pending.persistSelection) {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_primaryImagePath = pending.path;
                     g_primaryImageLoaded = true;
+                    saveSetting(L"PrimaryImage", pending.path);
                 }
-                saveSetting(L"PrimaryImage", pending.path);
             }
             logMessage(L"Avatar atomically replaced after GPU upload: " + pending.path);
-            PostMessageW(window_, kImageUploadSuccessMessage, static_cast<WPARAM>(pending.slot), 0);
+            if (pending.persistSelection)
+                PostMessageW(window_, kImageUploadSuccessMessage, static_cast<WPARAM>(pending.slot), 0);
         } catch (...) {
             PostMessageW(window_, kImageUploadFailureMessage, static_cast<WPARAM>(pending.slot), 0);
         }
@@ -774,8 +872,18 @@ public:
                               ? std::sin(static_cast<float>(GetTickCount64()) / 500.0f) *
                                     std::max(3.0f, static_cast<float>(height_) * 0.015f)
                               : 0.0f;
+        float bounce = 0.0f;
+        const ULONGLONG bounceStartedAt = g_bounceStartedAt.load();
+        const unsigned bounceDuration = g_bounceDurationMs.load();
+        if (g_bounceEnabled.load() && bounceStartedAt > 0 && now >= bounceStartedAt &&
+            now - bounceStartedAt < bounceDuration) {
+            const float progress = static_cast<float>(now - bounceStartedAt) /
+                                   static_cast<float>(bounceDuration);
+            bounce = -std::sin(progress * 3.14159265359f) *
+                     static_cast<float>(g_bounceHeightPixels.load());
+        }
         draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f,
-             (static_cast<float>(height_) - avatarHeight) * 0.5f + bob, avatarWidth,
+             (static_cast<float>(height_) - avatarHeight) * 0.5f + bob + bounce, avatarWidth,
              avatarHeight);
 
         const bool overlayVisible = g_applicationActive.load() && !g_dialogOpen.load() &&
@@ -966,8 +1074,19 @@ private:
         control_ = createSolid(30, 36, 48, 255);
         border_ = createSolid(48, 59, 74, 255);
         accent_ = createSolid(0, 212, 255, 255);
-        avatarIconText_ = createText(L"A", 30, RGB(230, 232, 235));
-        settingsIconText_ = createText(L"S", 30, RGB(230, 232, 235));
+        disabledOverlay_ = createSolid(4, 8, 12, 150);
+        const std::wstring directory = executableDirectory();
+        auto loadRailIcon = [this, &directory](const wchar_t *fileName) {
+            PendingImage decoded;
+            if (!decodePng((directory + L"\\" + fileName).c_str(), decoded))
+                throw E_INVALIDARG;
+            return createTexture(decoded.rgba.data(), decoded.width, decoded.height);
+        };
+        presetsIcon_ = loadRailIcon(L"rail-presets.png");
+        reactionsOnIcon_ = loadRailIcon(L"rail-reactions-on.png");
+        reactionsOffIcon_ = loadRailIcon(L"rail-reactions-off.png");
+        websocketIcon_ = loadRailIcon(L"rail-websocket.png");
+        settingsIcon_ = loadRailIcon(L"rail-settings.png");
     }
 
     void bindPipeline()
@@ -1032,12 +1151,12 @@ private:
     void drawOverlay()
     {
         const UiLayout ui = calculateUiLayout(width_, height_, kOutputUiDpi);
-        drawOutlinedRect(ui.avatar, control_, 2.0f);
-        drawLabel(avatarIconText_, ui.avatar, ui.avatar.height * 0.42f);
-        drawOutlinedRect(ui.settings, control_, 2.0f);
-        drawLabel(settingsIconText_, ui.settings, ui.settings.height * 0.42f);
-        const RectF activeEdge{ui.settings.x, ui.settings.y, 5.0f, ui.settings.height};
-        drawRect(accent_, activeEdge);
+        drawRect(presetsIcon_, ui.presets);
+        drawRect(disabledOverlay_, ui.presets);
+        drawRect(g_reactionsEnabled.load() ? reactionsOnIcon_ : reactionsOffIcon_, ui.reactions);
+        drawRect(websocketIcon_, ui.websocket);
+        drawRect(disabledOverlay_, ui.websocket);
+        drawRect(settingsIcon_, ui.settings);
     }
 
     HWND window_ = nullptr;
@@ -1071,8 +1190,12 @@ private:
     TextureAsset control_;
     TextureAsset border_;
     TextureAsset accent_;
-    TextureAsset avatarIconText_;
-    TextureAsset settingsIconText_;
+    TextureAsset disabledOverlay_;
+    TextureAsset presetsIcon_;
+    TextureAsset reactionsOnIcon_;
+    TextureAsset reactionsOffIcon_;
+    TextureAsset websocketIcon_;
+    TextureAsset settingsIcon_;
 };
 
 void renderThreadMain()
@@ -1118,6 +1241,14 @@ void handlePointerRelease(HWND window, float x, float y)
     if (outputX < 0.0f || outputY < 0.0f || outputX >= kOutputWidth || outputY >= kOutputHeight)
         return;
     const UiLayout ui = calculateUiLayout(kOutputWidth, kOutputHeight, kOutputUiDpi);
+    if (ui.reactions.contains(outputX, outputY)) {
+        const bool enabled = !g_reactionsEnabled.load();
+        g_reactionsEnabled.store(enabled);
+        saveSetting(L"ReactionsEnabled", enabled ? L"1" : L"0");
+        if (!enabled)
+            setMicrophoneReaction(false);
+        return;
+    }
     if (ui.settings.contains(outputX, outputY))
         showAvatarSettingsWindow(window);
 }
@@ -1167,6 +1298,64 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsChooseReactionBlinkMessage:
         openPngPicker(reinterpret_cast<HWND>(lParam), ImageSlot::ReactionBlink);
         return 0;
+    case kAvatarSettingsUseDefaultPrimaryMessage:
+    case kAvatarSettingsUseDefaultReactionMessage: {
+        const bool reaction = message == kAvatarSettingsUseDefaultReactionMessage;
+        const ImageSlot slot = reaction ? ImageSlot::Reaction : ImageSlot::Primary;
+        const std::wstring &defaultPath = reaction ? g_defaultReactionImagePath : g_defaultPrimaryImagePath;
+        try {
+            PendingImage decoded;
+            if (!decodePng(defaultPath.c_str(), decoded))
+                throw E_INVALIDARG;
+            decoded.slot = slot;
+            decoded.persistSelection = false;
+            {
+                std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                if (reaction) {
+                    g_reactionImagePath.clear();
+                    g_reactionImageLoaded = false;
+                } else {
+                    g_primaryImagePath.clear();
+                    g_primaryImageLoaded = false;
+                }
+            }
+            saveSetting(reaction ? L"ReactionImage" : L"PrimaryImage", L"");
+            {
+                std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+                g_pendingImages.push_back(std::move(decoded));
+            }
+            if (reaction)
+                sendReactionImageState();
+            else
+                sendPrimaryImageState();
+        } catch (...) {
+            postAvatarSettingsMessage(reaction ? L"reaction-image-upload-error"
+                                               : L"avatar-image-upload-error");
+        }
+        return 0;
+    }
+    case kAvatarSettingsRemovePrimaryBlinkMessage:
+    case kAvatarSettingsRemoveReactionBlinkMessage: {
+        const bool reaction = message == kAvatarSettingsRemoveReactionBlinkMessage;
+        const ImageSlot slot = reaction ? ImageSlot::ReactionBlink : ImageSlot::PrimaryBlink;
+        {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            std::wstring &path = reaction ? g_reactionBlinkImagePath : g_primaryBlinkImagePath;
+            bool &loaded = reaction ? g_reactionBlinkImageLoaded : g_primaryBlinkImageLoaded;
+            path.clear();
+            loaded = false;
+        }
+        saveSetting(reaction ? L"ReactionBlinkImage" : L"PrimaryBlinkImage", L"");
+        PendingImage clear;
+        clear.slot = slot;
+        clear.clearSlot = true;
+        {
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(clear));
+        }
+        sendBlinkImageState(slot);
+        return 0;
+    }
     case kAvatarSettingsPreviewReactionMessage:
         g_previewReaction.store(wParam != FALSE);
         postAvatarSettingsMessage(wParam != FALSE ? L"reaction-preview-on" : L"reaction-preview-off");
@@ -1178,6 +1367,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         sendBlinkImageState(ImageSlot::ReactionBlink);
         sendMicrophoneState();
         sendBlinkSettings();
+        sendBounceSettings();
         postAvatarSettingsMessage(L"reaction-preview-off");
         return 0;
     case kAvatarSettingsSelectMicrophoneMessage: {
@@ -1197,7 +1387,13 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     }
     case kAvatarSettingsReactionThresholdMessage:
         g_reactionThreshold.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 1, 1000));
+        g_noiseSensitivity.store(g_reactionThreshold.load() > g_noiseFloor.load()
+                                     ? g_reactionThreshold.load() - g_noiseFloor.load()
+                                     : 0);
         saveSetting(L"ReactionThreshold", std::to_wstring(g_reactionThreshold.load()));
+        saveSetting(L"NoiseSensitivity", std::to_wstring(g_noiseSensitivity.load()));
+        postAvatarSettingsMessage(L"noise-sensitivity\t" +
+                                  std::to_wstring(g_noiseSensitivity.load()));
         processMicrophoneLevel(g_audioMonitorLevel.load());
         return 0;
     case kAvatarSettingsReleaseDelayMessage:
@@ -1232,6 +1428,39 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         g_blinkDurationMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 50, 1000));
         saveSetting(L"BlinkDurationMs", std::to_wstring(g_blinkDurationMs.load()));
         return 0;
+    case kAvatarSettingsBounceEnabledMessage:
+        g_bounceEnabled.store(wParam != FALSE);
+        saveSetting(L"BounceEnabled", wParam != FALSE ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsBounceHeightMessage:
+        g_bounceHeightPixels.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 5, 160));
+        saveSetting(L"BounceHeightPixels", std::to_wstring(g_bounceHeightPixels.load()));
+        return 0;
+    case kAvatarSettingsBounceDurationMessage:
+        g_bounceDurationMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 100, 1200));
+        saveSetting(L"BounceDurationMs", std::to_wstring(g_bounceDurationMs.load()));
+        return 0;
+    case kAvatarSettingsPreviewBounceMessage:
+        triggerReactionBounce();
+        return 0;
+    case kAvatarSettingsCalibrateNoiseMessage:
+        g_noiseCalibrationActive = true;
+        g_noiseCalibrationStartedAt = GetTickCount64();
+        g_noiseCalibrationSum = 0;
+        g_noiseCalibrationSamples = 0;
+        setMicrophoneReaction(false);
+        postAvatarSettingsMessage(L"noise-calibration-started");
+        return 0;
+    case kAvatarSettingsNoiseSensitivityMessage:
+        g_noiseSensitivity.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 500));
+        g_reactionThreshold.store(std::clamp<unsigned>(
+            g_noiseFloor.load() + g_noiseSensitivity.load(), 1, 1000));
+        saveSetting(L"NoiseSensitivity", std::to_wstring(g_noiseSensitivity.load()));
+        saveSetting(L"ReactionThreshold", std::to_wstring(g_reactionThreshold.load()));
+        postAvatarSettingsMessage(L"reaction-threshold\t" +
+                                  std::to_wstring(g_reactionThreshold.load()));
+        processMicrophoneLevel(g_audioMonitorLevel.load());
+        return 0;
     case kAudioMonitorLevelMessage:
         g_audioMonitorLevel.store(static_cast<unsigned>(wParam));
         processMicrophoneLevel(static_cast<unsigned>(wParam));
@@ -1264,7 +1493,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         MessageBoxW(window,
                     L"The PNG decoded successfully, but its GPU texture could not be created. The current avatar is unchanged.",
-                    L"RearSilver Avatar — PNG loading", MB_OK | MB_ICONERROR);
+                    L"RearSilver Avatar Suite — PNG loading", MB_OK | MB_ICONERROR);
         return 0;
     case kImageUploadSuccessMessage:
         if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
@@ -1287,9 +1516,9 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         g_running.store(false);
         wchar_t messageText[256]{};
         swprintf_s(messageText,
-                   L"RearSilver Avatar encountered a graphics error (0x%08X) and must close.",
+                   L"RearSilver Avatar Suite encountered a graphics error (0x%08X) and must close.",
                    static_cast<unsigned>(wParam));
-        MessageBoxW(window, messageText, L"RearSilver Avatar", MB_OK | MB_ICONERROR);
+        MessageBoxW(window, messageText, L"RearSilver Avatar Suite", MB_OK | MB_ICONERROR);
         DestroyWindow(window);
         return 0;
     }
@@ -1305,6 +1534,99 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     }
 }
 
+LRESULT CALLBACK splashWindowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
+{
+    if (message == WM_TIMER) {
+        KillTimer(window, 1);
+        DestroyWindow(window);
+        return 0;
+    }
+    return DefWindowProcW(window, message, wParam, lParam);
+}
+
+HWND showSplashWindow(HINSTANCE instance)
+{
+    constexpr wchar_t splashClass[] = L"RearSilverAvatarSuiteSplashWindow";
+    WNDCLASSEXW windowClass{};
+    windowClass.cbSize = sizeof(windowClass);
+    windowClass.hInstance = instance;
+    windowClass.lpfnWndProc = splashWindowProcedure;
+    windowClass.lpszClassName = splashClass;
+    windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    RegisterClassExW(&windowClass);
+
+    constexpr UINT targetWidth = 720;
+    constexpr UINT targetHeight = 558;
+    const std::wstring path = executableDirectory() + L"\\splash.png";
+    ComPtr<IWICImagingFactory> factory;
+    ComPtr<IWICBitmapDecoder> decoder;
+    ComPtr<IWICBitmapFrameDecode> frame;
+    ComPtr<IWICBitmapScaler> scaler;
+    ComPtr<IWICFormatConverter> converter;
+    if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                IID_PPV_ARGS(&factory))) ||
+        FAILED(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+                                                  WICDecodeMetadataCacheOnLoad, &decoder)) ||
+        FAILED(decoder->GetFrame(0, &frame)) ||
+        FAILED(factory->CreateBitmapScaler(&scaler)) ||
+        FAILED(scaler->Initialize(frame.Get(), targetWidth, targetHeight,
+                                  WICBitmapInterpolationModeFant)) ||
+        FAILED(factory->CreateFormatConverter(&converter)) ||
+        FAILED(converter->Initialize(scaler.Get(), GUID_WICPixelFormat32bppPBGRA,
+                                     WICBitmapDitherTypeNone, nullptr, 0,
+                                     WICBitmapPaletteTypeCustom)))
+        return nullptr;
+
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = targetWidth;
+    info.bmiHeader.biHeight = -static_cast<LONG>(targetHeight);
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *pixels = nullptr;
+    HDC screen = GetDC(nullptr);
+    HDC memory = CreateCompatibleDC(screen);
+    HBITMAP bitmap = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &pixels, nullptr, 0);
+    if (!screen || !memory || !bitmap || !pixels) {
+        if (bitmap) DeleteObject(bitmap);
+        if (memory) DeleteDC(memory);
+        if (screen) ReleaseDC(nullptr, screen);
+        return nullptr;
+    }
+    if (FAILED(converter->CopyPixels(nullptr, targetWidth * 4, targetWidth * targetHeight * 4,
+                                     static_cast<BYTE *>(pixels)))) {
+        DeleteObject(bitmap);
+        DeleteDC(memory);
+        ReleaseDC(nullptr, screen);
+        return nullptr;
+    }
+
+    RECT workArea{};
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &workArea, 0);
+    POINT destination{workArea.left + (workArea.right - workArea.left - static_cast<LONG>(targetWidth)) / 2,
+                      workArea.top + (workArea.bottom - workArea.top - static_cast<LONG>(targetHeight)) / 2};
+    SIZE size{static_cast<LONG>(targetWidth), static_cast<LONG>(targetHeight)};
+    POINT source{};
+    BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    HWND splash = CreateWindowExW(WS_EX_LAYERED | WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE,
+                                  splashClass, L"RearSilver Avatar Suite", WS_POPUP,
+                                  destination.x, destination.y, targetWidth, targetHeight,
+                                  nullptr, nullptr, instance, nullptr);
+    HGDIOBJ previous = SelectObject(memory, bitmap);
+    if (splash)
+        UpdateLayeredWindow(splash, screen, &destination, &size, memory, &source, 0, &blend, ULW_ALPHA);
+    SelectObject(memory, previous);
+    DeleteObject(bitmap);
+    DeleteDC(memory);
+    ReleaseDC(nullptr, screen);
+    if (splash) {
+        ShowWindow(splash, SW_SHOWNOACTIVATE);
+        SetTimer(splash, 1, 1400, nullptr);
+    }
+    return splash;
+}
+
 } // namespace
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
@@ -1315,13 +1637,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         return 1;
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    showSplashWindow(instance);
     WNDCLASSEXW windowClass{};
     windowClass.cbSize = sizeof(windowClass);
     windowClass.hInstance = instance;
     windowClass.lpfnWndProc = windowProcedure;
     windowClass.lpszClassName = kWindowClass;
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    windowClass.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    windowClass.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_REARSILVER_AVATAR_SUITE));
+    windowClass.hIconSm = static_cast<HICON>(LoadImageW(instance,
+        MAKEINTRESOURCEW(IDI_REARSILVER_AVATAR_SUITE), IMAGE_ICON,
+        GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
     windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
     if (!RegisterClassExW(&windowClass)) {
         CoUninitialize();
@@ -1343,7 +1669,21 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     ShowWindow(g_mainWindow, showCommand);
     UpdateWindow(g_mainWindow);
 
+    const std::wstring assetsDirectory = executableDirectory();
+    g_defaultPrimaryImagePath = assetsDirectory + L"\\default-avatar-idle.png";
+    g_defaultReactionImagePath = assetsDirectory + L"\\default-avatar-reaction.png";
+    auto queueBundledDefault = [](const std::wstring &path, ImageSlot slot) {
+        PendingImage decoded;
+        if (!decodePng(path.c_str(), decoded))
+            throw E_INVALIDARG;
+        decoded.slot = slot;
+        decoded.persistSelection = false;
+        std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+        g_pendingImages.push_back(std::move(decoded));
+    };
+
     const std::wstring savedPrimaryImage = loadSetting(L"PrimaryImage");
+    bool primaryQueued = false;
     if (!savedPrimaryImage.empty()) {
         {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
@@ -1356,13 +1696,23 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
                 throw E_INVALIDARG;
             std::lock_guard<std::mutex> lock(g_pendingImageMutex);
             g_pendingImages.push_back(std::move(decoded));
+            primaryQueued = true;
             logMessage(L"Saved primary avatar queued for startup restore: " + savedPrimaryImage);
         } catch (...) {
             logMessage(L"Saved primary avatar is unavailable; using built-in default: " + savedPrimaryImage);
         }
     }
+    if (!primaryQueued) {
+        try {
+            queueBundledDefault(g_defaultPrimaryImagePath, ImageSlot::Primary);
+            logMessage(L"Bundled primary mascot queued for startup.");
+        } catch (...) {
+            logMessage(L"Bundled primary mascot is unavailable; using emergency placeholder.");
+        }
+    }
 
     const std::wstring savedReactionImage = loadSetting(L"ReactionImage");
+    bool reactionQueued = false;
     if (!savedReactionImage.empty()) {
         {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
@@ -1376,9 +1726,18 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
             decoded.slot = ImageSlot::Reaction;
             std::lock_guard<std::mutex> lock(g_pendingImageMutex);
             g_pendingImages.push_back(std::move(decoded));
+            reactionQueued = true;
             logMessage(L"Saved reaction avatar queued for startup restore: " + savedReactionImage);
         } catch (...) {
             logMessage(L"Saved reaction avatar is unavailable: " + savedReactionImage);
+        }
+    }
+    if (!reactionQueued) {
+        try {
+            queueBundledDefault(g_defaultReactionImagePath, ImageSlot::Reaction);
+            logMessage(L"Bundled reaction mascot queued for startup.");
+        } catch (...) {
+            logMessage(L"Bundled reaction mascot is unavailable.");
         }
     }
 
@@ -1414,6 +1773,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
                                  ? L""
                                  : savedMicrophone;
     g_audioMonitor = std::make_unique<AudioInputMonitor>();
+    const std::wstring savedReactionsEnabled = loadSetting(L"ReactionsEnabled");
+    if (!savedReactionsEnabled.empty())
+        g_reactionsEnabled.store(savedReactionsEnabled != L"0");
 
     const std::wstring savedThreshold = loadSetting(L"ReactionThreshold");
     if (!savedThreshold.empty())
@@ -1423,6 +1785,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     if (!savedRelease.empty())
         g_releaseDelayMs.store(std::clamp<unsigned>(wcstoul(savedRelease.c_str(), nullptr, 10),
                                                     0, 5000));
+    const std::wstring savedNoiseFloor = loadSetting(L"NoiseFloor");
+    if (!savedNoiseFloor.empty())
+        g_noiseFloor.store(std::clamp<unsigned>(wcstoul(savedNoiseFloor.c_str(), nullptr, 10),
+                                                0, 950));
+    const std::wstring savedNoiseSensitivity = loadSetting(L"NoiseSensitivity");
+    if (!savedNoiseSensitivity.empty())
+        g_noiseSensitivity.store(std::clamp<unsigned>(
+            wcstoul(savedNoiseSensitivity.c_str(), nullptr, 10), 0, 500));
     const std::wstring savedBlinkEnabled = loadSetting(L"BlinkEnabled");
     if (!savedBlinkEnabled.empty())
         g_blinkEnabled.store(savedBlinkEnabled != L"0");
@@ -1438,6 +1808,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     if (!savedBlinkDuration.empty())
         g_blinkDurationMs.store(std::clamp<unsigned>(wcstoul(savedBlinkDuration.c_str(), nullptr, 10),
                                                      50, 1000));
+    const std::wstring savedBounceEnabled = loadSetting(L"BounceEnabled");
+    if (!savedBounceEnabled.empty())
+        g_bounceEnabled.store(savedBounceEnabled != L"0");
+    const std::wstring savedBounceHeight = loadSetting(L"BounceHeightPixels");
+    if (!savedBounceHeight.empty())
+        g_bounceHeightPixels.store(std::clamp<unsigned>(wcstoul(savedBounceHeight.c_str(), nullptr, 10),
+                                                        5, 160));
+    const std::wstring savedBounceDuration = loadSetting(L"BounceDurationMs");
+    if (!savedBounceDuration.empty())
+        g_bounceDurationMs.store(std::clamp<unsigned>(wcstoul(savedBounceDuration.c_str(), nullptr, 10),
+                                                      100, 1200));
     g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
 
     g_running.store(true);
@@ -1447,7 +1828,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         g_dialogOpen.store(true);
         MessageBoxW(g_mainWindow,
                     L"RivaTuner Statistics Server is running. If OBS Game Capture is blank or frozen, open RTSS Setup and enable ‘Use Microsoft Detours API hooking’.",
-                    L"RearSilver Avatar — OBS compatibility", MB_OK | MB_ICONINFORMATION);
+                    L"RearSilver Avatar Suite — OBS compatibility", MB_OK | MB_ICONINFORMATION);
         g_dialogOpen.store(false);
     }
 
