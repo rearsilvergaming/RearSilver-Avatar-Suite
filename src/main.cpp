@@ -190,6 +190,7 @@ struct UiLayout {
     RectF reactions;
     RectF websocket;
     RectF backgrounds;
+    RectF tools;
     RectF settings;
 };
 
@@ -205,7 +206,8 @@ UiLayout calculateUiLayout(UINT, UINT, UINT dpi)
     result.reactions = {margin, margin + (iconSize + gap), iconSize, iconSize};
     result.websocket = {margin, margin + 2.0f * (iconSize + gap), iconSize, iconSize};
     result.backgrounds = {margin, margin + 3.0f * (iconSize + gap), iconSize, iconSize};
-    result.settings = {margin, margin + 4.0f * (iconSize + gap), iconSize, iconSize};
+    result.tools = {margin, margin + 4.0f * (iconSize + gap), iconSize, iconSize};
+    result.settings = {margin, margin + 5.0f * (iconSize + gap), iconSize, iconSize};
     return result;
 }
 
@@ -1590,6 +1592,7 @@ private:
         reactionsOffIcon_ = loadRailIcon(L"rail-reactions-off.png");
         websocketIcon_ = loadRailIcon(L"rail-websocket.png");
         backgroundsIcon_ = loadRailIcon(L"rail-background.png");
+        toolsIcon_ = loadRailIcon(L"rail-tools.png");
         settingsIcon_ = loadRailIcon(L"rail-settings.png");
     }
 
@@ -1690,6 +1693,7 @@ private:
         drawRect(websocketIcon_, ui.websocket);
         drawRect(disabledOverlay_, ui.websocket);
         drawRect(backgroundsIcon_, ui.backgrounds);
+        drawRect(toolsIcon_, ui.tools);
         drawRect(settingsIcon_, ui.settings);
     }
 
@@ -1751,6 +1755,7 @@ private:
     TextureAsset reactionsOffIcon_;
     TextureAsset websocketIcon_;
     TextureAsset backgroundsIcon_;
+    TextureAsset toolsIcon_;
     TextureAsset settingsIcon_;
     TextureAsset backgroundImage_;
     bool backgroundImageLoaded_ = false;
@@ -1813,6 +1818,10 @@ void handlePointerRelease(HWND window, float x, float y)
         showAvatarSettingsWindow(window, L"backgrounds");
         return;
     }
+    if (ui.tools.contains(outputX, outputY)) {
+        showAvatarSettingsWindow(window, L"feedback");
+        return;
+    }
     if (ui.settings.contains(outputX, outputY))
         showAvatarSettingsWindow(window);
 }
@@ -1836,6 +1845,7 @@ bool pointIsOnRail(HWND window, float x, float y)
            ui.reactions.contains(outputX, outputY) ||
            ui.websocket.contains(outputX, outputY) ||
            ui.backgrounds.contains(outputX, outputY) ||
+           ui.tools.contains(outputX, outputY) ||
            ui.settings.contains(outputX, outputY);
 }
 

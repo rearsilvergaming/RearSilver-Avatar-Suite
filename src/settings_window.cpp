@@ -23,6 +23,7 @@ bool g_initialising = false;
 bool g_webViewReady = false;
 std::atomic<bool> g_settingsVisible{false};
 std::wstring g_pendingPage;
+std::wstring g_lastSettingsPage = L"avatar";
 
 void sendPendingPage()
 {
@@ -137,6 +138,11 @@ void initialiseWebView()
                                         if (SUCCEEDED(args->TryGetWebMessageAsString(&message)) && message) {
                                             if (wcscmp(message, L"close-settings") == 0)
                                                 PostMessageW(g_settingsWindow, WM_CLOSE, 0, 0);
+                                            else if (wcsncmp(message, L"page-changed\t", 13) == 0) {
+                                                const std::wstring page(message + 13);
+                                                if (page != L"feedback" && page != L"updates" && page != L"help")
+                                                    g_lastSettingsPage = page;
+                                            }
                                             else if (wcscmp(message, L"open-spout-plugin") == 0)
                                                 ShellExecuteW(g_settingsWindow, L"open",
                                                     L"https://github.com/Off-World-Live/obs-spout2-plugin/releases",
@@ -432,6 +438,8 @@ bool showAvatarSettingsWindow(HWND owner, const std::wstring &page)
     g_ownerWindow = owner;
     if (!page.empty())
         g_pendingPage = page;
+    else
+        g_pendingPage = g_lastSettingsPage;
     if (!g_settingsWindow) {
         WNDCLASSEXW windowClass{};
         windowClass.cbSize = sizeof(windowClass);

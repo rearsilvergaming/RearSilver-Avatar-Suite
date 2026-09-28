@@ -47,7 +47,10 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 - The floating collapsible sidebar and the temporary large D3D settings panel have been retired and removed. The renderer now contains only a small vertical quick-navigation rail; heavyweight settings belong to the owned WebView2 interface.
 - The normal focused renderer view uses a small vertical quick-navigation icon rail inside the fixed D3D composition. It may briefly appear in Game Capture while the user interacts directly with the renderer.
 - The quick-navigation rail hides whenever the main renderer window is not the active interaction surface, including while the owned Settings window has focus. This returns Game Capture to the clean avatar/background composition during configuration.
-- Full Settings and Guided Setup are not rendered into the fixed OBS canvas. Settings opens in an owned native window containing WebView2, with Stream Suite-style horizontal tab navigation, clear page headings, short explanatory copy, and grouped cards or control sections.
+- Full Settings, Tools, and Guided Setup are not rendered into the fixed OBS canvas. They open in the same owned native window containing WebView2. The interface uses the Stream Suite Control Hub pattern: compact product branding at the top of a persistent left sidebar, grouped vertical navigation, a contextual page heading, short explanatory copy, and grouped cards or control sections in the remaining content area.
+- The sidebar has separate Settings and Tools groups. Settings contains Avatar, Microphone, Blink, Effects, Backgrounds, Output, and General. Tools contains Feedback & Diagnostics, Updates, and Help. On narrow windows the sidebar collapses to recognisable icons with tooltips and never to unexplained abbreviations or a completely hidden state.
+- The Avatar preview remains available beside configuration pages where it provides useful immediate feedback. Tools pages use the full content width so diagnostics, updater state, and help content are not compressed by an unrelated preview.
+- The cog quick-rail button opens the last visited Settings page and must never strand the user on a Tools destination. The Tools quick-rail button opens Feedback & Diagnostics. Both routes reuse the same owned WebView2 window and navigation state.
 - The owned Settings window is application UI rather than an OBS output surface. It must not modify, resize, suspend, re-parent, or otherwise disturb the validated DirectComposition renderer, its animation, its fixed canvas, or the user's OBS transform.
 - Native-to-HTML communication uses WebView2 messages following the Stream Suite hosting pattern. Avatar may reuse Stream Suite styling and assets where appropriate while retaining its own product identity and content.
 - First run uses a guided setup in the owned WebView2 interface based directly on the Stream Suite pattern: visible progress, a page title and explanation, grouped settings, automatic progress saving, and Back, Skip for now, and Continue actions.
@@ -56,6 +59,17 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 - The quick-navigation rail is overlay content and must never alter the avatar transform or configured OBS canvas. The owned Settings window and its WebView content remain outside that composition entirely.
 - Closing Settings returns focus to the Avatar renderer without changing the avatar, animation phase, output canvas, background, or OBS transform.
 - Do not introduce a second renderer/output window, native Win32 settings dialog, or generic native control styling. The owned WebView2 Settings window is the authorised application-interface exception to the single-renderer-window rule.
+
+## General, tools, and companion integration
+
+- Avatar Suite is a companion to RearSilver Stream Suite. Shared capabilities must use the same placement, labels, visual hierarchy, and interaction patterns so Stream Suite users can find them without learning a second information architecture.
+- Feedback & Diagnostics is a first-class Tools destination rather than a card hidden inside General. It follows Stream Suite's feedback-first, privacy-explicit workflow: collect descriptive feedback, refresh and preview a redacted report, copy it, optionally export one diagnostic package, and open the local logs folder. Nothing is submitted automatically.
+- Avatar diagnostics should report relevant application state such as version and build, renderer and output state, selected capture method, Spout2 sender state, microphone availability, WebView2/runtime information, and local logs while excluding credentials and unrelated personal content.
+- Updates is a first-class Tools destination. Reuse Stream Suite's updater behaviour and presentation for installed version, update status, release changes, download progress, cancellation, installer verification, release notes, and installer handoff instead of creating a separate update model.
+- General contains persistent application and companion preferences. When Stream Suite is installed, it may offer an explicit `Open Avatar Suite with Stream Suite` integration. Stream Suite owns that launch relationship; Avatar Suite must not register itself for Windows startup.
+- Do not add an always-on-top option. Avatar Suite must not claim scarce screen space over a streamer's game, OBS, chat, or automation tools.
+- Do not add a control that permanently hides the renderer quick-navigation rail unless an equally discoverable recovery mechanism is designed and approved first. The rail must not be made effectively unrecoverable by a saved preference.
+- Help is a first-class Tools destination for capture setup, avatar configuration, troubleshooting, documentation, version/build information, third-party licences, and relevant application-data locations.
 
 ## Motion and reaction effects
 
@@ -203,8 +217,9 @@ Profiles, microphone-driven states, blinking, and effects are outside the first 
 ## Background navigation
 
 - Backgrounds have a dedicated top-level Settings page, separate from capture and output configuration.
-- The quick rail order is Presets, Reactions, WebSocket, Backgrounds, then Settings.
+- The quick rail order is Presets, Reactions, WebSocket, Backgrounds, Tools, then Settings.
 - Clicking Backgrounds opens or focuses Settings directly on the Backgrounds page. It does not cycle or change the active background.
+- Clicking Tools opens or focuses the owned interface directly on Feedback & Diagnostics. Clicking Settings opens or focuses the last visited Settings destination rather than the last visited Tools destination.
 - Direct navigation must also work while the Settings WebView is still starting.
 - Game Capture and Spout2 offer Transparent or Background image; Window Capture offers Solid colour, Chroma key, or Background image.
 - Spout2 publishes the existing fixed 1920 × 1080 premultiplied-alpha D3D11 frame under the sender name `RearSilver Avatar Suite`. The sender exists only while Spout2 is selected and releases its resources when another capture method is chosen or the app closes.

@@ -70,6 +70,9 @@ add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Background.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-background.png"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Tools.png"
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-tools.png"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Settings.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-settings.png")
 
