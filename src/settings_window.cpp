@@ -275,6 +275,74 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsPreviewShakeMessage,
                                                              0, 0);
+                                            else if (wcsncmp(message, L"brightness-enabled\t", 19) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBrightnessEnabledMessage,
+                                                             wcscmp(message + 19, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"brightness-idle\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBrightnessIdleMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"brightness-reaction\t", 20) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBrightnessReactionMessage,
+                                                             wcstoul(message + 20, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"brightness-transition\t", 22) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBrightnessTransitionMessage,
+                                                             wcstoul(message + 22, nullptr, 10), 0);
+                                            else if (wcscmp(message, L"preview-brightness") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPreviewBrightnessMessage,
+                                                             0, 0);
+                                            else if (wcsncmp(message, L"float-enabled\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsFloatEnabledMessage,
+                                                             wcscmp(message + 14, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"float-mode\t", 11) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsFloatModeMessage,
+                                                             wcstoul(message + 11, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"float-height\t", 13) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsFloatHeightMessage,
+                                                             wcstoul(message + 13, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"float-cycle\t", 12) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsFloatCycleMessage,
+                                                             wcstoul(message + 12, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"float-direction\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsFloatDirectionMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"float-drift\t", 12) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsFloatDriftMessage,
+                                                             wcstoul(message + 12, nullptr, 10), 0);
+                                            else if (wcscmp(message, L"preview-float") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPreviewFloatMessage,
+                                                             0, 0);
+                                            else if (wcsncmp(message, L"tilt-enabled\t", 13) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsTiltEnabledMessage,
+                                                             wcscmp(message + 13, L"1") == 0, 0);
+                                            else if (wcsncmp(message, L"tilt-angle\t", 11) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsTiltAngleMessage,
+                                                             wcstoul(message + 11, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"tilt-direction\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsTiltDirectionMessage,
+                                                             wcstoul(message + 15, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"tilt-transition\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsTiltTransitionMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcscmp(message, L"preview-tilt") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPreviewTiltMessage,
+                                                             0, 0);
                                             else if (wcscmp(message, L"calibrate-noise") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsCalibrateNoiseMessage,

@@ -46,7 +46,6 @@ HWND g_mainWindow = nullptr;
 std::atomic<bool> g_running{false};
 std::atomic<bool> g_applicationActive{true};
 std::atomic<bool> g_dialogOpen{false};
-std::atomic<bool> g_motionEnabled{true};
 std::atomic<bool> g_reactionsEnabled{true};
 std::atomic<int> g_backgroundMode{0};
 std::atomic<UINT> g_clientWidth{960};
@@ -130,6 +129,28 @@ std::atomic<unsigned> g_shakeSpeed{45};
 std::atomic<unsigned> g_shakeDirection{0};
 std::atomic<bool> g_shakeWobble{true};
 std::atomic<ULONGLONG> g_shakePreviewUntil{0};
+std::atomic<bool> g_brightnessAdded{false};
+std::atomic<bool> g_brightnessEnabled{true};
+std::atomic<unsigned> g_brightnessIdle{70};
+std::atomic<unsigned> g_brightnessReaction{115};
+std::atomic<unsigned> g_brightnessTransitionMs{150};
+std::atomic<ULONGLONG> g_brightnessPreviewUntil{0};
+std::atomic<bool> g_floatAdded{false};
+std::atomic<bool> g_floatEnabled{true};
+std::atomic<unsigned> g_floatMode{1};
+std::atomic<unsigned> g_floatHeightPixels{35};
+std::atomic<unsigned> g_floatCycleMs{4000};
+std::atomic<unsigned> g_floatDirection{0};
+std::atomic<unsigned> g_floatDriftPixels{30};
+std::atomic<ULONGLONG> g_floatPreviewUntil{0};
+std::atomic<bool> g_tiltAdded{false};
+std::atomic<bool> g_tiltEnabled{true};
+std::atomic<unsigned> g_tiltAngleDegrees{12};
+std::atomic<unsigned> g_tiltDirection{2};
+std::atomic<unsigned> g_tiltTransitionMs{225};
+std::atomic<int> g_tiltActiveSign{-1};
+std::atomic<bool> g_tiltAlternateRight{false};
+std::atomic<ULONGLONG> g_tiltPreviewUntil{0};
 std::mutex g_effectStackMutex;
 std::wstring g_effectStack = L"bounce";
 
@@ -234,6 +255,18 @@ std::wstring loadSetting(const wchar_t *key)
     GetPrivateProfileStringW(L"Avatar", key, L"", value,
                              static_cast<DWORD>(std::size(value)), path.c_str());
     return value;
+}
+
+bool settingExists(const wchar_t *key)
+{
+    const std::wstring path = settingsFilePath();
+    if (path.empty())
+        return false;
+    constexpr wchar_t missing[] = {1, 0};
+    wchar_t value[2]{};
+    const DWORD length = GetPrivateProfileStringW(L"Avatar", key, missing, value,
+                                                   static_cast<DWORD>(std::size(value)), path.c_str());
+    return !(length == 1 && value[0] == missing[0]);
 }
 
 void saveSetting(const wchar_t *key, const std::wstring &value)
@@ -362,6 +395,39 @@ void sendBounceSettings()
                               std::to_wstring(g_shakeDirection.load()));
     postAvatarSettingsMessage(g_shakeWobble.load() ? L"shake-wobble\t1"
                                                     : L"shake-wobble\t0");
+    postAvatarSettingsMessage(g_brightnessEnabled.load() ? L"brightness-enabled\t1"
+                                                          : L"brightness-enabled\t0");
+    postAvatarSettingsMessage(L"brightness-idle\t" +
+                              std::to_wstring(g_brightnessIdle.load()));
+    postAvatarSettingsMessage(L"brightness-reaction\t" +
+                              std::to_wstring(g_brightnessReaction.load()));
+    postAvatarSettingsMessage(L"brightness-transition\t" +
+                              std::to_wstring(g_brightnessTransitionMs.load()));
+    postAvatarSettingsMessage(g_floatEnabled.load() ? L"float-enabled\t1" : L"float-enabled\t0");
+    postAvatarSettingsMessage(L"float-mode\t" + std::to_wstring(g_floatMode.load()));
+    postAvatarSettingsMessage(L"float-height\t" + std::to_wstring(g_floatHeightPixels.load()));
+    postAvatarSettingsMessage(L"float-cycle\t" + std::to_wstring(g_floatCycleMs.load()));
+    postAvatarSettingsMessage(L"float-direction\t" +
+                              std::to_wstring(g_floatDirection.load()));
+    postAvatarSettingsMessage(L"float-drift\t" +
+                              std::to_wstring(g_floatDriftPixels.load()));
+    postAvatarSettingsMessage(g_tiltEnabled.load() ? L"tilt-enabled\t1" : L"tilt-enabled\t0");
+    postAvatarSettingsMessage(L"tilt-angle\t" + std::to_wstring(g_tiltAngleDegrees.load()));
+    postAvatarSettingsMessage(L"tilt-direction\t" + std::to_wstring(g_tiltDirection.load()));
+    postAvatarSettingsMessage(L"tilt-transition\t" +
+                              std::to_wstring(g_tiltTransitionMs.load()));
+}
+
+int selectTiltDirection()
+{
+    const unsigned direction = g_tiltDirection.load();
+    if (direction == 0)
+        return -1;
+    if (direction == 1)
+        return 1;
+    const bool right = g_tiltAlternateRight.load();
+    g_tiltAlternateRight.store(!right);
+    return right ? 1 : -1;
 }
 
 void triggerReactionEffects()
@@ -374,6 +440,11 @@ void triggerReactionEffects()
     if (g_squashAdded.load() && g_squashEnabled.load()) {
         g_squashStartedAt.store(now);
         postAvatarSettingsMessage(L"squash-triggered");
+    }
+    if (g_tiltAdded.load() && g_tiltEnabled.load()) {
+        const int sign = selectTiltDirection();
+        g_tiltActiveSign.store(sign);
+        postAvatarSettingsMessage(L"tilt-triggered\t" + std::to_wstring(sign));
     }
 }
 
@@ -980,10 +1051,60 @@ public:
             avatarWidth *= std::max(0.55f, scaleX);
             avatarHeight *= std::max(0.55f, scaleY);
         }
-        const float bob = g_motionEnabled.load()
-                              ? std::sin(static_cast<float>(GetTickCount64()) / 500.0f) *
-                                    std::max(3.0f, static_cast<float>(height_) * 0.015f)
-                              : 0.0f;
+        const unsigned floatMode = g_floatMode.load();
+        const bool floatApplies = g_floatAdded.load() && g_floatEnabled.load() &&
+                                  (now < g_floatPreviewUntil.load() || floatMode == 1 ||
+                                   (floatMode == 0 && !reactionActive) ||
+                                   (floatMode == 2 && reactionActive));
+        const float targetFloatHeight = floatApplies
+                                            ? static_cast<float>(g_floatHeightPixels.load())
+                                            : 0.0f;
+        const float targetFloatDrift = floatApplies && g_floatDirection.load() != 0
+                                           ? static_cast<float>(g_floatDriftPixels.load())
+                                           : 0.0f;
+        const unsigned floatCycle = std::max(1000u, g_floatCycleMs.load());
+        const float floatPhase = static_cast<float>(now % floatCycle) /
+                                 static_cast<float>(floatCycle) * 6.28318530718f;
+        auto calculateFloatPosition = [floatPhase](float height, float drift, unsigned direction) {
+            const float y = -(std::sin(floatPhase) + 1.0f) * 0.5f * height;
+            const float directionSign = direction == 1 ? -1.0f : 1.0f;
+            const float x = direction == 0
+                                ? 0.0f
+                                : (1.0f - std::cos(floatPhase)) * 0.5f * drift * directionSign;
+            return std::pair<float, float>{x, y};
+        };
+        const float correctionProgress = floatCorrectionStartedAt_ == 0
+                                             ? 1.0f
+                                             : std::clamp(static_cast<float>(now - floatCorrectionStartedAt_) /
+                                                              500.0f,
+                                                          0.0f, 1.0f);
+        const float correctionEase = correctionProgress * correctionProgress *
+                                     (3.0f - 2.0f * correctionProgress);
+        currentFloatCorrectionX_ = floatCorrectionStartX_ * (1.0f - correctionEase);
+        currentFloatCorrectionY_ = floatCorrectionStartY_ * (1.0f - correctionEase);
+        const unsigned targetFloatDirection = targetFloatDrift > 0.0f ? g_floatDirection.load() : 0;
+        if (std::abs(targetFloatHeight - currentFloatHeight_) > 0.001f ||
+            std::abs(targetFloatDrift - currentFloatDrift_) > 0.001f ||
+            targetFloatDirection != currentFloatDirection_) {
+            const auto oldPosition = calculateFloatPosition(currentFloatHeight_, currentFloatDrift_,
+                                                            currentFloatDirection_);
+            const float displayedX = oldPosition.first + currentFloatCorrectionX_;
+            const float displayedY = oldPosition.second + currentFloatCorrectionY_;
+            currentFloatHeight_ = targetFloatHeight;
+            currentFloatDrift_ = targetFloatDrift;
+            currentFloatDirection_ = targetFloatDirection;
+            const auto newPosition = calculateFloatPosition(currentFloatHeight_, currentFloatDrift_,
+                                                            currentFloatDirection_);
+            floatCorrectionStartX_ = displayedX - newPosition.first;
+            floatCorrectionStartY_ = displayedY - newPosition.second;
+            currentFloatCorrectionX_ = floatCorrectionStartX_;
+            currentFloatCorrectionY_ = floatCorrectionStartY_;
+            floatCorrectionStartedAt_ = now;
+        }
+        const auto floatPosition = calculateFloatPosition(currentFloatHeight_, currentFloatDrift_,
+                                                          currentFloatDirection_);
+        const float floatX = floatPosition.first + currentFloatCorrectionX_;
+        const float floatY = floatPosition.second + currentFloatCorrectionY_;
         float bounce = 0.0f;
         const ULONGLONG bounceStartedAt = g_bounceStartedAt.load();
         const unsigned bounceDuration = g_bounceDurationMs.load();
@@ -1025,9 +1146,52 @@ public:
                 shakeRotation = std::sin(phase * 1.17f + 0.8f) * intensity *
                                 currentShakeMix_ * 0.0261799388f;
         }
-        draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f + shakeX,
-             baseBottom - avatarHeight + bob + bounce + shakeY, avatarWidth,
-             avatarHeight, shakeRotation);
+        const bool tiltActive = g_tiltAdded.load() && g_tiltEnabled.load() &&
+                                (reactionActive || now < g_tiltPreviewUntil.load());
+        const float targetTilt = tiltActive
+                                     ? static_cast<float>(g_tiltActiveSign.load()) *
+                                           static_cast<float>(g_tiltAngleDegrees.load()) *
+                                           0.0174532925199f
+                                     : 0.0f;
+        if (std::abs(targetTilt - tiltTarget_) > 0.00001f) {
+            tiltStart_ = currentTilt_;
+            tiltTarget_ = targetTilt;
+            tiltTransitionStartedAt_ = now;
+        }
+        const unsigned tiltDuration = g_tiltTransitionMs.load();
+        const float tiltProgress = tiltDuration == 0
+                                       ? 1.0f
+                                       : std::clamp(static_cast<float>(now - tiltTransitionStartedAt_) /
+                                                        static_cast<float>(tiltDuration),
+                                                    0.0f, 1.0f);
+        const float tiltEase = tiltProgress * tiltProgress * (3.0f - 2.0f * tiltProgress);
+        currentTilt_ = tiltStart_ + (tiltTarget_ - tiltStart_) * tiltEase;
+        const bool brightnessReaction = reactionActive || now < g_brightnessPreviewUntil.load();
+        const float targetBrightness = g_brightnessAdded.load() && g_brightnessEnabled.load()
+                                           ? static_cast<float>(brightnessReaction
+                                                 ? g_brightnessReaction.load()
+                                                 : g_brightnessIdle.load()) / 100.0f
+                                           : 1.0f;
+        if (std::abs(targetBrightness - brightnessTarget_) > 0.0001f) {
+            brightnessStart_ = currentBrightness_;
+            brightnessTarget_ = targetBrightness;
+            brightnessTransitionStartedAt_ = now;
+        }
+        const unsigned brightnessDuration = g_brightnessTransitionMs.load();
+        const float brightnessProgress = brightnessDuration == 0
+                                             ? 1.0f
+                                             : std::clamp(static_cast<float>(now - brightnessTransitionStartedAt_) /
+                                                              static_cast<float>(brightnessDuration),
+                                                          0.0f, 1.0f);
+        const float brightnessEase = brightnessProgress * brightnessProgress *
+                                     (3.0f - 2.0f * brightnessProgress);
+        currentBrightness_ = brightnessStart_ +
+                             (brightnessTarget_ - brightnessStart_) * brightnessEase;
+        setPixelBrightness(currentBrightness_);
+        draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f + floatX + shakeX,
+             baseBottom - avatarHeight + floatY + bounce + shakeY, avatarWidth,
+             avatarHeight, shakeRotation + currentTilt_);
+        setPixelBrightness(1.0f);
 
         const bool overlayVisible = g_applicationActive.load() && !g_dialogOpen.load() &&
                                     !isAvatarSettingsWindowVisible();
@@ -1142,7 +1306,8 @@ private:
             "struct P{float4 p:SV_POSITION;float2 uv:TEXCOORD0;};"
             "P vs(V i){P o;o.p=float4(i.p,0,1);o.uv=i.uv;return o;}"
             "Texture2D img:register(t0);SamplerState smp:register(s0);"
-            "float4 ps(P i):SV_TARGET{return img.Sample(smp,i.uv);}";
+            "cbuffer B:register(b0){float brightness;float3 brightnessPad;}"
+            "float4 ps(P i):SV_TARGET{float4 c=img.Sample(smp,i.uv);c.rgb*=brightness;return c;}";
         ComPtr<ID3DBlob> vertexBlob;
         ComPtr<ID3DBlob> pixelBlob;
         ComPtr<ID3DBlob> errors;
@@ -1168,6 +1333,12 @@ private:
         buffer.BindFlags = D3D11_BIND_VERTEX_BUFFER;
         buffer.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
         check(device_->CreateBuffer(&buffer, nullptr, vertexBuffer_.GetAddressOf()));
+
+        D3D11_BUFFER_DESC brightnessBuffer{};
+        brightnessBuffer.ByteWidth = sizeof(float) * 4;
+        brightnessBuffer.Usage = D3D11_USAGE_DEFAULT;
+        brightnessBuffer.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
+        check(device_->CreateBuffer(&brightnessBuffer, nullptr, brightnessBuffer_.GetAddressOf()));
 
         D3D11_SAMPLER_DESC sampler{};
         sampler.Filter = D3D11_FILTER_MIN_MAG_MIP_LINEAR;
@@ -1242,9 +1413,17 @@ private:
         context_->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
         context_->VSSetShader(vertexShader_.Get(), nullptr, 0);
         context_->PSSetShader(pixelShader_.Get(), nullptr, 0);
+        ID3D11Buffer *brightnessBuffer = brightnessBuffer_.Get();
+        context_->PSSetConstantBuffers(0, 1, &brightnessBuffer);
         ID3D11SamplerState *sampler = sampler_.Get();
         context_->PSSetSamplers(0, 1, &sampler);
         context_->OMSetBlendState(blend_.Get(), nullptr, 0xffffffff);
+    }
+
+    void setPixelBrightness(float brightness)
+    {
+        const float values[4] = {brightness, 0.0f, 0.0f, 0.0f};
+        context_->UpdateSubresource(brightnessBuffer_.Get(), 0, nullptr, values, 0, 0);
     }
 
     void draw(const TextureAsset &texture, float x, float y, float width, float height,
@@ -1338,6 +1517,7 @@ private:
     ComPtr<ID3D11PixelShader> pixelShader_;
     ComPtr<ID3D11InputLayout> inputLayout_;
     ComPtr<ID3D11Buffer> vertexBuffer_;
+    ComPtr<ID3D11Buffer> brightnessBuffer_;
     ComPtr<ID3D11SamplerState> sampler_;
     ComPtr<ID3D11BlendState> blend_;
     TextureAsset primaryAvatar_;
@@ -1355,6 +1535,22 @@ private:
     ULONGLONG lastBreathUpdateAt_ = 0;
     float currentShakeMix_ = 0.0f;
     ULONGLONG lastShakeUpdateAt_ = 0;
+    float currentBrightness_ = 1.0f;
+    float brightnessStart_ = 1.0f;
+    float brightnessTarget_ = 1.0f;
+    ULONGLONG brightnessTransitionStartedAt_ = 0;
+    float currentFloatHeight_ = 0.0f;
+    float currentFloatDrift_ = 0.0f;
+    unsigned currentFloatDirection_ = 0;
+    float currentFloatCorrectionX_ = 0.0f;
+    float currentFloatCorrectionY_ = 0.0f;
+    float floatCorrectionStartX_ = 0.0f;
+    float floatCorrectionStartY_ = 0.0f;
+    ULONGLONG floatCorrectionStartedAt_ = 0;
+    float currentTilt_ = 0.0f;
+    float tiltStart_ = 0.0f;
+    float tiltTarget_ = 0.0f;
+    ULONGLONG tiltTransitionStartedAt_ = 0;
     TextureAsset control_;
     TextureAsset border_;
     TextureAsset accent_;
@@ -1615,6 +1811,9 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         g_breathingAdded.store(containsEffect(L"breathing"));
         g_squashAdded.store(containsEffect(L"squash"));
         g_shakeAdded.store(containsEffect(L"shake"));
+        g_brightnessAdded.store(containsEffect(L"brightness"));
+        g_floatAdded.store(containsEffect(L"float"));
+        g_tiltAdded.store(containsEffect(L"tilt"));
         saveSetting(L"EffectStack", value);
         if (!g_bounceAdded.load())
             g_bounceStartedAt.store(0);
@@ -1622,6 +1821,12 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             g_squashStartedAt.store(0);
         if (!g_shakeAdded.load())
             g_shakePreviewUntil.store(0);
+        if (!g_brightnessAdded.load())
+            g_brightnessPreviewUntil.store(0);
+        if (!g_floatAdded.load())
+            g_floatPreviewUntil.store(0);
+        if (!g_tiltAdded.load())
+            g_tiltPreviewUntil.store(0);
         return 0;
     }
     case kAvatarSettingsBreathingEnabledMessage:
@@ -1676,6 +1881,64 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         g_shakeWobble.store(wParam != FALSE);
         saveSetting(L"ShakeWobble", g_shakeWobble.load() ? L"1" : L"0");
         return 0;
+    case kAvatarSettingsBrightnessEnabledMessage:
+        g_brightnessEnabled.store(wParam != FALSE);
+        saveSetting(L"BrightnessEnabled", g_brightnessEnabled.load() ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsBrightnessIdleMessage:
+        g_brightnessIdle.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 10, 100));
+        saveSetting(L"BrightnessIdle", std::to_wstring(g_brightnessIdle.load()));
+        return 0;
+    case kAvatarSettingsBrightnessReactionMessage:
+        g_brightnessReaction.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 100, 200));
+        saveSetting(L"BrightnessReaction", std::to_wstring(g_brightnessReaction.load()));
+        return 0;
+    case kAvatarSettingsBrightnessTransitionMessage:
+        g_brightnessTransitionMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 2000));
+        saveSetting(L"BrightnessTransitionMs", std::to_wstring(g_brightnessTransitionMs.load()));
+        return 0;
+    case kAvatarSettingsFloatEnabledMessage:
+        g_floatEnabled.store(wParam != FALSE);
+        saveSetting(L"FloatEnabled", g_floatEnabled.load() ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsFloatModeMessage:
+        g_floatMode.store(std::min<unsigned>(static_cast<unsigned>(wParam), 2));
+        saveSetting(L"FloatMode", std::to_wstring(g_floatMode.load()));
+        return 0;
+    case kAvatarSettingsFloatHeightMessage:
+        g_floatHeightPixels.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 160));
+        saveSetting(L"FloatHeightPixels", std::to_wstring(g_floatHeightPixels.load()));
+        return 0;
+    case kAvatarSettingsFloatCycleMessage:
+        g_floatCycleMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 1000, 12000));
+        saveSetting(L"FloatCycleMs", std::to_wstring(g_floatCycleMs.load()));
+        return 0;
+    case kAvatarSettingsFloatDirectionMessage:
+        g_floatDirection.store(std::min<unsigned>(static_cast<unsigned>(wParam), 2));
+        saveSetting(L"FloatDirection", std::to_wstring(g_floatDirection.load()));
+        return 0;
+    case kAvatarSettingsFloatDriftMessage:
+        g_floatDriftPixels.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 120));
+        saveSetting(L"FloatDriftPixels", std::to_wstring(g_floatDriftPixels.load()));
+        return 0;
+    case kAvatarSettingsTiltEnabledMessage:
+        g_tiltEnabled.store(wParam != FALSE);
+        saveSetting(L"TiltEnabled", g_tiltEnabled.load() ? L"1" : L"0");
+        return 0;
+    case kAvatarSettingsTiltAngleMessage:
+        g_tiltAngleDegrees.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 60));
+        saveSetting(L"TiltAngleDegrees", std::to_wstring(g_tiltAngleDegrees.load()));
+        return 0;
+    case kAvatarSettingsTiltDirectionMessage:
+        g_tiltDirection.store(std::min<unsigned>(static_cast<unsigned>(wParam), 2));
+        if (g_tiltDirection.load() < 2)
+            g_tiltActiveSign.store(g_tiltDirection.load() == 0 ? -1 : 1);
+        saveSetting(L"TiltDirection", std::to_wstring(g_tiltDirection.load()));
+        return 0;
+    case kAvatarSettingsTiltTransitionMessage:
+        g_tiltTransitionMs.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 0, 2000));
+        saveSetting(L"TiltTransitionMs", std::to_wstring(g_tiltTransitionMs.load()));
+        return 0;
     case kAvatarSettingsBounceHeightMessage:
         g_bounceHeightPixels.store(std::clamp<unsigned>(static_cast<unsigned>(wParam), 5, 160));
         saveSetting(L"BounceHeightPixels", std::to_wstring(g_bounceHeightPixels.load()));
@@ -1700,6 +1963,26 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         if (g_shakeAdded.load() && g_shakeEnabled.load()) {
             g_shakePreviewUntil.store(GetTickCount64() + 2000);
             postAvatarSettingsMessage(L"shake-preview-triggered");
+        }
+        return 0;
+    case kAvatarSettingsPreviewBrightnessMessage:
+        if (g_brightnessAdded.load() && g_brightnessEnabled.load()) {
+            g_brightnessPreviewUntil.store(GetTickCount64() + 2000);
+            postAvatarSettingsMessage(L"brightness-preview-triggered");
+        }
+        return 0;
+    case kAvatarSettingsPreviewFloatMessage:
+        if (g_floatAdded.load() && g_floatEnabled.load()) {
+            g_floatPreviewUntil.store(GetTickCount64() + std::max(2000u, g_floatCycleMs.load()));
+            postAvatarSettingsMessage(L"float-preview-triggered");
+        }
+        return 0;
+    case kAvatarSettingsPreviewTiltMessage:
+        if (g_tiltAdded.load() && g_tiltEnabled.load()) {
+            const int sign = selectTiltDirection();
+            g_tiltActiveSign.store(sign);
+            g_tiltPreviewUntil.store(GetTickCount64() + 2000);
+            postAvatarSettingsMessage(L"tilt-preview-triggered\t" + std::to_wstring(sign));
         }
         return 0;
     case kAvatarSettingsCalibrateNoiseMessage:
@@ -2079,7 +2362,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         g_bounceDurationMs.store(std::clamp<unsigned>(wcstoul(savedBounceDuration.c_str(), nullptr, 10),
                                                       100, 1200));
     const std::wstring savedEffectStack = loadSetting(L"EffectStack");
-    if (!savedEffectStack.empty()) {
+    if (settingExists(L"EffectStack")) {
         std::lock_guard<std::mutex> lock(g_effectStackMutex);
         g_effectStack = savedEffectStack;
         const std::wstring padded = L"," + savedEffectStack + L",";
@@ -2087,6 +2370,9 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         g_breathingAdded.store(padded.find(L",breathing,") != std::wstring::npos);
         g_squashAdded.store(padded.find(L",squash,") != std::wstring::npos);
         g_shakeAdded.store(padded.find(L",shake,") != std::wstring::npos);
+        g_brightnessAdded.store(padded.find(L",brightness,") != std::wstring::npos);
+        g_floatAdded.store(padded.find(L",float,") != std::wstring::npos);
+        g_tiltAdded.store(padded.find(L",tilt,") != std::wstring::npos);
     }
     const std::wstring savedBreathingEnabled = loadSetting(L"BreathingEnabled");
     if (!savedBreathingEnabled.empty())
@@ -2127,6 +2413,52 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     const std::wstring savedShakeWobble = loadSetting(L"ShakeWobble");
     if (!savedShakeWobble.empty())
         g_shakeWobble.store(savedShakeWobble != L"0");
+    const std::wstring savedBrightnessEnabled = loadSetting(L"BrightnessEnabled");
+    if (!savedBrightnessEnabled.empty())
+        g_brightnessEnabled.store(savedBrightnessEnabled != L"0");
+    const std::wstring savedBrightnessIdle = loadSetting(L"BrightnessIdle");
+    if (!savedBrightnessIdle.empty())
+        g_brightnessIdle.store(std::clamp<unsigned>(wcstoul(savedBrightnessIdle.c_str(), nullptr, 10), 10, 100));
+    const std::wstring savedBrightnessReaction = loadSetting(L"BrightnessReaction");
+    if (!savedBrightnessReaction.empty())
+        g_brightnessReaction.store(std::clamp<unsigned>(wcstoul(savedBrightnessReaction.c_str(), nullptr, 10), 100, 200));
+    const std::wstring savedBrightnessTransition = loadSetting(L"BrightnessTransitionMs");
+    if (!savedBrightnessTransition.empty())
+        g_brightnessTransitionMs.store(std::clamp<unsigned>(wcstoul(savedBrightnessTransition.c_str(), nullptr, 10), 0, 2000));
+    const std::wstring savedFloatEnabled = loadSetting(L"FloatEnabled");
+    if (!savedFloatEnabled.empty())
+        g_floatEnabled.store(savedFloatEnabled != L"0");
+    const std::wstring savedFloatMode = loadSetting(L"FloatMode");
+    if (!savedFloatMode.empty())
+        g_floatMode.store(std::min<unsigned>(wcstoul(savedFloatMode.c_str(), nullptr, 10), 2));
+    std::wstring savedFloatHeight = loadSetting(L"FloatHeightPixels");
+    if (savedFloatHeight.empty())
+        savedFloatHeight = loadSetting(L"FloatIdlePixels");
+    if (!savedFloatHeight.empty())
+        g_floatHeightPixels.store(std::clamp<unsigned>(wcstoul(savedFloatHeight.c_str(), nullptr, 10), 0, 160));
+    const std::wstring savedFloatCycle = loadSetting(L"FloatCycleMs");
+    if (!savedFloatCycle.empty())
+        g_floatCycleMs.store(std::clamp<unsigned>(wcstoul(savedFloatCycle.c_str(), nullptr, 10), 1000, 12000));
+    const std::wstring savedFloatDirection = loadSetting(L"FloatDirection");
+    if (!savedFloatDirection.empty())
+        g_floatDirection.store(std::min<unsigned>(wcstoul(savedFloatDirection.c_str(), nullptr, 10), 2));
+    const std::wstring savedFloatDrift = loadSetting(L"FloatDriftPixels");
+    if (!savedFloatDrift.empty())
+        g_floatDriftPixels.store(std::clamp<unsigned>(wcstoul(savedFloatDrift.c_str(), nullptr, 10), 0, 120));
+    const std::wstring savedTiltEnabled = loadSetting(L"TiltEnabled");
+    if (!savedTiltEnabled.empty())
+        g_tiltEnabled.store(savedTiltEnabled != L"0");
+    const std::wstring savedTiltAngle = loadSetting(L"TiltAngleDegrees");
+    if (!savedTiltAngle.empty())
+        g_tiltAngleDegrees.store(std::clamp<unsigned>(wcstoul(savedTiltAngle.c_str(), nullptr, 10), 0, 60));
+    const std::wstring savedTiltDirection = loadSetting(L"TiltDirection");
+    if (!savedTiltDirection.empty())
+        g_tiltDirection.store(std::min<unsigned>(wcstoul(savedTiltDirection.c_str(), nullptr, 10), 2));
+    if (g_tiltDirection.load() < 2)
+        g_tiltActiveSign.store(g_tiltDirection.load() == 0 ? -1 : 1);
+    const std::wstring savedTiltTransition = loadSetting(L"TiltTransitionMs");
+    if (!savedTiltTransition.empty())
+        g_tiltTransitionMs.store(std::clamp<unsigned>(wcstoul(savedTiltTransition.c_str(), nullptr, 10), 0, 2000));
     g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
 
     g_running.store(true);

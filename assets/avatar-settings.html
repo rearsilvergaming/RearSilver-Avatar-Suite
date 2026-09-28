@@ -44,7 +44,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .range-scale{position:relative;height:16px;margin-top:5px}.range-scale button{position:absolute;top:0;padding:0;border:0;background:transparent;color:#7890aa;font:600 10px Sora;white-space:nowrap;transform:translateX(-50%)}.range-scale button:hover{border:0;background:transparent;color:var(--cyan)}
 .preview-card{position:sticky;top:20px;min-height:0}
 .preview-stage{display:grid;place-items:center;aspect-ratio:1/1;max-height:430px;margin-top:14px;border:1px solid #344257;border-radius:10px;overflow:hidden;background-color:#111821;background-image:linear-gradient(45deg,#1d2734 25%,transparent 25%),linear-gradient(-45deg,#1d2734 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#1d2734 75%),linear-gradient(-45deg,transparent 75%,#1d2734 75%);background-size:24px 24px;background-position:0 0,0 12px,12px -12px,-12px 0}
-.preview-stage img{display:none;width:100%;height:100%;object-fit:contain;translate:var(--shake-x,0px) calc(var(--bounce-y,0px) + var(--shake-y,0px));rotate:var(--shake-rotation,0deg)}
+.preview-stage img{display:none;width:100%;height:100%;object-fit:contain;translate:calc(var(--float-x,0px) + var(--shake-x,0px)) calc(var(--float-y,0px) + var(--bounce-y,0px) + var(--shake-y,0px));rotate:calc(var(--shake-rotation,0deg) + var(--tilt-rotation,0deg));filter:brightness(var(--avatar-brightness,1));transition:filter var(--brightness-transition,150ms) ease}
 .preview-empty{color:var(--muted);padding:24px;text-align:center;line-height:1.5}
 .preview-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:12px;color:var(--muted);font-size:12px}
 .preview-footer>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
@@ -158,6 +158,18 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
         <div class="effect-heading"><h3>Shake</h3><div class="effect-tools"><label style="margin:0"><input id="shake-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
         <div class="effect-body"><p>Continuously shake the avatar while microphone reaction is active, then settle smoothly in place.</p><div class="control-grid"><div><div class="range-heading"><span>Intensity</span><strong id="shake-intensity-value">Rattled — 70%</strong></div><input id="shake-intensity" type="range" min="0" max="300" step="1" value="70"><div class="range-scale" data-range="shake-intensity"><button data-value="0">Calm</button><button data-value="40">Rattled</button><button data-value="100">Chaotic</button><button data-value="200">Unhinged</button></div></div><div><div class="range-heading"><span>Speed</span><strong id="shake-speed-value">Quick — 4.5 Hz</strong></div><input id="shake-speed" type="range" min="8" max="120" step="1" value="45"><div class="range-scale" data-range="shake-speed"><button data-value="8">Slow</button><button data-value="35">Quick</button><button data-value="75">Frantic</button><button data-value="120">Turbo</button></div></div><div><label for="shake-direction">Direction</label><select id="shake-direction"><option value="0">Horizontal and vertical</option><option value="1">Horizontal only</option><option value="2">Vertical only</option></select></div><div><label>Rotation</label><label style="margin-top:12px"><input id="shake-wobble" type="checkbox" checked> Add rotation wobble</label></div></div><div class="setting-row"><span class="status">Preview runs for two seconds without changing the selected image state.</span><button class="primary" id="preview-shake">Preview shake</button></div></div>
       </article>
+      <article class="card effect-card" data-effect="brightness" hidden>
+        <div class="effect-heading"><h3>Idle/Reaction brightness</h3><div class="effect-tools"><label style="margin:0"><input id="brightness-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
+        <div class="effect-body"><p>Keep the avatar darker while idle and brighten it smoothly for the full microphone reaction.</p><div class="control-grid"><div><div class="range-heading"><span>Idle brightness</span><strong id="brightness-idle-value">Soft — 70%</strong></div><input id="brightness-idle" type="range" min="10" max="100" step="1" value="70"><div class="range-scale" data-range="brightness-idle"><button data-value="10">Shadowed</button><button data-value="40">Dim</button><button data-value="70">Soft</button><button data-value="100">Normal</button></div></div><div><div class="range-heading"><span>Reaction brightness</span><strong id="brightness-reaction-value">Bright — 115%</strong></div><input id="brightness-reaction" type="range" min="100" max="200" step="1" value="115"><div class="range-scale" data-range="brightness-reaction"><button data-value="100">Normal</button><button data-value="125">Bright</button><button data-value="160">Radiant</button><button data-value="200">Blinding</button></div></div><div><div class="range-heading"><span>Transition time</span><strong id="brightness-transition-value">150 ms</strong></div><input id="brightness-transition" type="range" min="0" max="2000" step="25" value="150"></div></div><div class="setting-row"><span class="status">Reaction brightness remains active for the microphone reaction duration.</span><button class="primary" id="preview-brightness">Preview reaction brightness</button></div></div>
+      </article>
+      <article class="card effect-card" data-effect="float" hidden>
+        <div class="effect-heading"><h3>Float</h3><div class="effect-tools"><label style="margin:0"><input id="float-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
+        <div class="effect-body"><p>Move the avatar through one continuous slow arc. Idle and reaction keeps the same path untouched when microphone state changes.</p><div class="control-grid"><div><label for="float-mode">Applies during</label><select id="float-mode"><option value="0">Idle</option><option value="1" selected>Idle and reaction — continuous</option><option value="2">Reaction</option></select></div><div><div class="range-heading"><span>Cycle duration</span><strong id="float-cycle-value">4 s</strong></div><input id="float-cycle" type="range" min="1000" max="12000" step="100" value="4000"></div><div><div class="range-heading"><span>Float height</span><strong id="float-height-value">Gentle — 35 px</strong></div><input id="float-height" type="range" min="0" max="160" step="1" value="35"><div class="range-scale" data-range="float-height"><button data-value="0">Grounded</button><button data-value="30">Gentle</button><button data-value="80">Dreamy</button><button data-value="160">Weightless</button></div></div><div><label for="float-direction">Horizontal drift</label><select id="float-direction"><option value="0">None — vertical float</option><option value="1">Drift left</option><option value="2">Drift right</option></select></div><div><div class="range-heading"><span>Drift distance</span><strong id="float-drift-value">30 px</strong></div><input id="float-drift" type="range" min="0" max="120" step="1" value="30"></div></div><div class="setting-row"><span class="status">Preview runs for at least one complete float cycle.</span><button class="primary" id="preview-float">Preview float</button></div></div>
+      </article>
+      <article class="card effect-card" data-effect="tilt" hidden>
+        <div class="effect-heading"><h3>Tilt</h3><div class="effect-tools"><label style="margin:0"><input id="tilt-enabled" type="checkbox" checked> Enabled</label><button data-move="up" title="Move effect up">▲</button><button data-move="down" title="Move effect down">▼</button><button data-collapse title="Collapse effect">−</button><button data-remove>Remove</button></div></div>
+        <div class="effect-body"><p>Lean from the bottom centre for the full microphone reaction, then return smoothly upright.</p><div class="control-grid"><div><div class="range-heading"><span>Angle</span><strong id="tilt-angle-value">Curious — 12°</strong></div><input id="tilt-angle" type="range" min="0" max="60" step="1" value="12"><div class="range-scale" data-range="tilt-angle"><button data-value="0">Straight</button><button data-value="10">Curious</button><button data-value="25">Dramatic</button><button data-value="45">Timber!</button></div></div><div><div class="range-heading"><span>Transition time</span><strong id="tilt-transition-value">220 ms</strong></div><input id="tilt-transition" type="range" min="0" max="2000" step="25" value="225"></div><div><label for="tilt-direction">Direction</label><select id="tilt-direction"><option value="0">Left</option><option value="1">Right</option><option value="2" selected>Alternate each reaction</option></select></div></div><div class="setting-row"><span class="status">Alternate keeps one direction throughout each reaction and flips for the next.</span><button class="primary" id="preview-tilt">Preview tilt</button></div></div>
+      </article>
       <div class="empty-effects" id="empty-effects" hidden>No effects are configured. Add an effect to bring the avatar to life.</div>
     </div>
     <button class="primary add-effect" id="add-effect">+ Add effect</button>
@@ -172,7 +184,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
   </aside>
   </div>
 </main>
-<div class="modal-backdrop" id="effect-modal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="effect-modal-title"><div class="modal-heading"><div><h2 id="effect-modal-title">Add effect</h2><p class="intro">Choose an effect to add to the current preset.</p></div><button id="close-effect-modal">Close</button></div><div class="effect-choice" data-choice="bounce"><div><h3>Reaction bounce</h3><p>Lift the avatar once whenever microphone input begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="breathing"><div><h3>Breathing</h3><p>Add continuous subtle expansion during idle, reaction, or both states.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="squash"><div><h3>Squash and stretch</h3><p>Add a bottom-anchored cartoon deformation whenever microphone reaction begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="shake"><div><h3>Shake</h3><p>Continuously rattle the avatar during microphone reaction and settle smoothly afterwards.</p></div><button class="primary">Add</button></div></div></div>
+<div class="modal-backdrop" id="effect-modal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="effect-modal-title"><div class="modal-heading"><div><h2 id="effect-modal-title">Add effect</h2><p class="intro">Choose an effect to add to the current preset.</p></div><button id="close-effect-modal">Close</button></div><div class="effect-choice" data-choice="bounce"><div><h3>Reaction bounce</h3><p>Lift the avatar once whenever microphone input begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="breathing"><div><h3>Breathing</h3><p>Add continuous subtle expansion during idle, reaction, or both states.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="squash"><div><h3>Squash and stretch</h3><p>Add a bottom-anchored cartoon deformation whenever microphone reaction begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="shake"><div><h3>Shake</h3><p>Continuously rattle the avatar during microphone reaction and settle smoothly afterwards.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="brightness"><div><h3>Idle/Reaction brightness</h3><p>Dim the avatar while idle and brighten it smoothly for microphone reactions.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="float"><div><h3>Float</h3><p>Move continuously during idle, reaction, or both with optional horizontal drift.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="tilt"><div><h3>Tilt</h3><p>Lean for the microphone reaction and return smoothly when it ends.</p></div><button class="primary">Add</button></div></div></div>
 <script>
 document.getElementById('close').onclick=()=>window.chrome.webview.postMessage('close-settings');
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
@@ -216,6 +228,38 @@ let shakeWobble=true;
 let shakeAnimationFrame=0;
 let shakePreviewUntil=0;
 let shakeMix=0;
+let brightnessEnabled=true;
+let brightnessIdle=70;
+let brightnessReaction=115;
+let brightnessTransition=150;
+let brightnessPreviewUntil=0;
+let floatEnabled=true;
+let floatMode=1;
+let floatHeight=35;
+let floatCycle=4000;
+let floatDirection=0;
+let floatDrift=30;
+let floatPreviewUntil=0;
+let floatAnimationFrame=0;
+let floatCurrentHeight=0;
+let floatCurrentDrift=0;
+let floatCurrentDirection=0;
+let floatCorrectionX=0;
+let floatCorrectionY=0;
+let floatCorrectionStartX=0;
+let floatCorrectionStartY=0;
+let floatCorrectionStartedAt=0;
+let tiltEnabled=true;
+let tiltAngle=12;
+let tiltDirection=2;
+let tiltTransition=225;
+let tiltSign=-1;
+let tiltPreviewUntil=0;
+let tiltAnimationFrame=0;
+let tiltCurrent=0;
+let tiltStart=0;
+let tiltTarget=0;
+let tiltTransitionStartedAt=0;
 const previewReaction=document.getElementById('preview-reaction');
 const avatarPreview=document.getElementById('avatar-preview');
 const microphoneDevice=document.getElementById('microphone-device');
@@ -240,6 +284,9 @@ function updatePreview(){
   }
   updateBreathingPreview();
   if(manualReactionPreview||microphoneReaction)ensureShakePreview();
+  updateBrightnessPreview();
+  ensureFloatPreview();
+  if(manualReactionPreview||microphoneReaction||performance.now()<tiltPreviewUntil)ensureTiltPreview();
 }
 document.getElementById('choose-reaction').onclick=()=>{
   document.getElementById('reaction-status').textContent='Waiting for a PNG selection…';
@@ -336,6 +383,20 @@ const shakeIntensityControl=document.getElementById('shake-intensity');
 const shakeSpeedControl=document.getElementById('shake-speed');
 const shakeDirectionControl=document.getElementById('shake-direction');
 const shakeWobbleControl=document.getElementById('shake-wobble');
+const brightnessEnabledControl=document.getElementById('brightness-enabled');
+const brightnessIdleControl=document.getElementById('brightness-idle');
+const brightnessReactionControl=document.getElementById('brightness-reaction');
+const brightnessTransitionControl=document.getElementById('brightness-transition');
+const floatEnabledControl=document.getElementById('float-enabled');
+const floatModeControl=document.getElementById('float-mode');
+const floatHeightControl=document.getElementById('float-height');
+const floatCycleControl=document.getElementById('float-cycle');
+const floatDirectionControl=document.getElementById('float-direction');
+const floatDriftControl=document.getElementById('float-drift');
+const tiltEnabledControl=document.getElementById('tilt-enabled');
+const tiltAngleControl=document.getElementById('tilt-angle');
+const tiltDirectionControl=document.getElementById('tilt-direction');
+const tiltTransitionControl=document.getElementById('tilt-transition');
 function effectCards(){return [...effectStack.querySelectorAll('.effect-card')].filter(card=>!card.hidden)}
 function updateEffectStackUi(post=false){
   effectOrder=effectCards().map(card=>card.dataset.effect);
@@ -356,10 +417,13 @@ function updateEffectStackUi(post=false){
   if(!effectOrder.includes('squash'))stopSquashPreview();
   if(!effectOrder.includes('shake'))stopShakePreview();
   else if(manualReactionPreview||microphoneReaction)ensureShakePreview();
+  updateBrightnessPreview();
+  if(effectOrder.includes('float'))ensureFloatPreview();else stopFloatPreview();
+  if(!effectOrder.includes('tilt'))stopTiltPreview();
   if(post)window.chrome.webview.postMessage(`effect-stack\t${effectOrder.join(',')}`);
 }
 function applyEffectOrder(value){
-  effectOrder=value.split(',').filter(name=>name==='bounce'||name==='breathing'||name==='squash'||name==='shake');
+  effectOrder=value.split(',').filter(name=>name==='bounce'||name==='breathing'||name==='squash'||name==='shake'||name==='brightness'||name==='float'||name==='tilt');
   document.querySelectorAll('.effect-card').forEach(card=>card.hidden=!effectOrder.includes(card.dataset.effect));
   effectOrder.forEach(name=>effectStack.insertBefore(effectStack.querySelector(`[data-effect="${name}"]`),emptyEffects));
   updateEffectStackUi(false);
@@ -546,6 +610,144 @@ shakeWobbleControl.onchange=()=>{shakeWobble=shakeWobbleControl.checked;window.c
 shakeIntensityControl.onchange=()=>window.chrome.webview.postMessage(`shake-intensity\t${shakeIntensityControl.value}`);
 shakeSpeedControl.onchange=()=>window.chrome.webview.postMessage(`shake-speed\t${shakeSpeedControl.value}`);
 document.getElementById('preview-shake').onclick=()=>window.chrome.webview.postMessage('preview-shake');
+function updateBrightnessUi(){
+  const idle=Number(brightnessIdleControl.value);
+  const idleLabel=idle<40?'Shadowed':idle<70?'Dim':idle<100?'Soft':'Normal';
+  const reaction=Number(brightnessReactionControl.value);
+  const reactionLabel=reaction<125?'Normal':reaction<160?'Bright':reaction<200?'Radiant':'Blinding';
+  document.getElementById('brightness-idle-value').textContent=`${idleLabel} — ${idle}%`;
+  document.getElementById('brightness-reaction-value').textContent=`${reactionLabel} — ${reaction}%`;
+  document.getElementById('brightness-transition-value').textContent=`${brightnessTransitionControl.value} ms`;
+}
+function updateBrightnessPreview(){
+  const added=effectOrder.includes('brightness');
+  const reacting=manualReactionPreview||microphoneReaction||performance.now()<brightnessPreviewUntil;
+  const value=added&&brightnessEnabled?(reacting?brightnessReaction:brightnessIdle):100;
+  avatarPreview.style.setProperty('--avatar-brightness',String(value/100));
+  avatarPreview.style.setProperty('--brightness-transition',`${brightnessTransition}ms`);
+}
+brightnessEnabledControl.onchange=()=>{brightnessEnabled=brightnessEnabledControl.checked;updateBrightnessPreview();window.chrome.webview.postMessage(`brightness-enabled\t${brightnessEnabled?'1':'0'}`)};
+brightnessIdleControl.oninput=()=>{brightnessIdle=Number(brightnessIdleControl.value);updateBrightnessUi();updateBrightnessPreview()};
+brightnessReactionControl.oninput=()=>{brightnessReaction=Number(brightnessReactionControl.value);updateBrightnessUi();updateBrightnessPreview()};
+brightnessTransitionControl.oninput=()=>{brightnessTransition=Number(brightnessTransitionControl.value);updateBrightnessUi();updateBrightnessPreview()};
+brightnessIdleControl.onchange=()=>window.chrome.webview.postMessage(`brightness-idle\t${brightnessIdleControl.value}`);
+brightnessReactionControl.onchange=()=>window.chrome.webview.postMessage(`brightness-reaction\t${brightnessReactionControl.value}`);
+brightnessTransitionControl.onchange=()=>window.chrome.webview.postMessage(`brightness-transition\t${brightnessTransitionControl.value}`);
+document.getElementById('preview-brightness').onclick=()=>window.chrome.webview.postMessage('preview-brightness');
+function updateFloatUi(){
+  const label=value=>value===0?'Grounded':value<80?'Gentle':value<160?'Dreamy':'Weightless';
+  document.getElementById('float-height-value').textContent=`${label(Number(floatHeightControl.value))} — ${floatHeightControl.value} px`;
+  document.getElementById('float-cycle-value').textContent=seconds(floatCycleControl.value);
+  document.getElementById('float-drift-value').textContent=`${floatDriftControl.value} px`;
+  floatDriftControl.disabled=Number(floatDirectionControl.value)===0;
+}
+function clearFloatTransform(){
+  avatarPreview.style.removeProperty('--float-x');
+  avatarPreview.style.removeProperty('--float-y');
+}
+function stopFloatPreview(){
+  if(floatAnimationFrame)cancelAnimationFrame(floatAnimationFrame);
+  floatAnimationFrame=0;
+  floatCurrentHeight=0;
+  floatCurrentDrift=0;
+  floatCurrentDirection=0;
+  floatCorrectionX=0;
+  floatCorrectionY=0;
+  clearFloatTransform();
+}
+function ensureFloatPreview(){
+  if(floatAnimationFrame||!floatEnabled||!effectOrder.includes('float'))return;
+  const animate=now=>{
+    const reacting=manualReactionPreview||microphoneReaction;
+    const applies=now<floatPreviewUntil||floatMode===1||(floatMode===0&&!reacting)||(floatMode===2&&reacting);
+    const targetHeight=applies?floatHeight:0;
+    const targetDrift=applies&&floatDirection!==0?floatDrift:0;
+    const phase=(now%floatCycle)/floatCycle*Math.PI*2;
+    const previewHeight=document.querySelector('.preview-stage').clientHeight||0;
+    const scale=previewHeight/1080;
+    const position=(height,drift,direction)=>({
+      x:direction===0?0:(1-Math.cos(phase))*.5*drift*(direction===1?-1:1),
+      y:-(Math.sin(phase)+1)*.5*height
+    });
+    const correctionProgress=floatCorrectionStartedAt===0?1:Math.max(0,Math.min(1,(now-floatCorrectionStartedAt)/500));
+    const correctionEase=correctionProgress*correctionProgress*(3-2*correctionProgress);
+    floatCorrectionX=floatCorrectionStartX*(1-correctionEase);
+    floatCorrectionY=floatCorrectionStartY*(1-correctionEase);
+    const targetDirection=targetDrift>0?floatDirection:0;
+    if(Math.abs(targetHeight-floatCurrentHeight)>.001||Math.abs(targetDrift-floatCurrentDrift)>.001||targetDirection!==floatCurrentDirection){
+      const oldPosition=position(floatCurrentHeight,floatCurrentDrift,floatCurrentDirection);
+      const displayedX=oldPosition.x+floatCorrectionX;
+      const displayedY=oldPosition.y+floatCorrectionY;
+      floatCurrentHeight=targetHeight;
+      floatCurrentDrift=targetDrift;
+      floatCurrentDirection=targetDirection;
+      const newPosition=position(floatCurrentHeight,floatCurrentDrift,floatCurrentDirection);
+      floatCorrectionStartX=displayedX-newPosition.x;
+      floatCorrectionStartY=displayedY-newPosition.y;
+      floatCorrectionX=floatCorrectionStartX;
+      floatCorrectionY=floatCorrectionStartY;
+      floatCorrectionStartedAt=now;
+    }
+    if(!applies&&Math.abs(floatCurrentHeight)<.01&&Math.abs(floatCorrectionX)<.01&&Math.abs(floatCorrectionY)<.01){stopFloatPreview();return}
+    const currentPosition=position(floatCurrentHeight,floatCurrentDrift,floatCurrentDirection);
+    const x=(currentPosition.x+floatCorrectionX)*scale;
+    const y=(currentPosition.y+floatCorrectionY)*scale;
+    avatarPreview.style.setProperty('--float-x',`${x}px`);
+    avatarPreview.style.setProperty('--float-y',`${y}px`);
+    floatAnimationFrame=requestAnimationFrame(animate);
+  };
+  floatAnimationFrame=requestAnimationFrame(animate);
+}
+floatEnabledControl.onchange=()=>{floatEnabled=floatEnabledControl.checked;if(floatEnabled)ensureFloatPreview();else stopFloatPreview();window.chrome.webview.postMessage(`float-enabled\t${floatEnabled?'1':'0'}`)};
+floatModeControl.onchange=()=>{floatMode=Number(floatModeControl.value);ensureFloatPreview();window.chrome.webview.postMessage(`float-mode\t${floatMode}`)};
+floatHeightControl.oninput=()=>{floatHeight=Number(floatHeightControl.value);updateFloatUi()};
+floatCycleControl.oninput=()=>{floatCycle=Number(floatCycleControl.value);updateFloatUi()};
+floatDirectionControl.onchange=()=>{floatDirection=Number(floatDirectionControl.value);updateFloatUi();ensureFloatPreview();window.chrome.webview.postMessage(`float-direction\t${floatDirection}`)};
+floatDriftControl.oninput=()=>{floatDrift=Number(floatDriftControl.value);updateFloatUi()};
+floatHeightControl.onchange=()=>window.chrome.webview.postMessage(`float-height\t${floatHeightControl.value}`);
+floatCycleControl.onchange=()=>window.chrome.webview.postMessage(`float-cycle\t${floatCycleControl.value}`);
+floatDriftControl.onchange=()=>window.chrome.webview.postMessage(`float-drift\t${floatDriftControl.value}`);
+document.getElementById('preview-float').onclick=()=>window.chrome.webview.postMessage('preview-float');
+function updateTiltUi(){
+  const angle=Number(tiltAngleControl.value);
+  const label=angle<10?'Straight':angle<25?'Curious':angle<45?'Dramatic':'Timber!';
+  document.getElementById('tilt-angle-value').textContent=`${label} — ${angle}°`;
+  document.getElementById('tilt-transition-value').textContent=`${tiltTransitionControl.value} ms`;
+}
+function stopTiltPreview(){
+  if(tiltAnimationFrame)cancelAnimationFrame(tiltAnimationFrame);
+  tiltAnimationFrame=0;
+  tiltCurrent=0;
+  tiltStart=0;
+  tiltTarget=0;
+  avatarPreview.style.removeProperty('--tilt-rotation');
+}
+function ensureTiltPreview(){
+  if(tiltAnimationFrame||!tiltEnabled||!effectOrder.includes('tilt'))return;
+  const animate=now=>{
+    const active=manualReactionPreview||microphoneReaction||now<tiltPreviewUntil;
+    const target=active?tiltSign*tiltAngle:0;
+    if(Math.abs(target-tiltTarget)>.001){
+      tiltStart=tiltCurrent;
+      tiltTarget=target;
+      tiltTransitionStartedAt=now;
+    }
+    const progress=tiltTransition===0?1:Math.max(0,Math.min(1,(now-tiltTransitionStartedAt)/tiltTransition));
+    const ease=progress*progress*(3-2*progress);
+    tiltCurrent=tiltStart+(tiltTarget-tiltStart)*ease;
+    avatarPreview.style.setProperty('--tilt-rotation',`${tiltCurrent}deg`);
+    if(!active&&Math.abs(tiltCurrent)<.001){stopTiltPreview();return}
+    tiltAnimationFrame=requestAnimationFrame(animate);
+  };
+  tiltAnimationFrame=requestAnimationFrame(animate);
+}
+tiltEnabledControl.onchange=()=>{tiltEnabled=tiltEnabledControl.checked;if(tiltEnabled)ensureTiltPreview();else stopTiltPreview();window.chrome.webview.postMessage(`tilt-enabled\t${tiltEnabled?'1':'0'}`)};
+tiltAngleControl.oninput=()=>{tiltAngle=Number(tiltAngleControl.value);updateTiltUi()};
+tiltDirectionControl.onchange=()=>{tiltDirection=Number(tiltDirectionControl.value);if(tiltDirection<2)tiltSign=tiltDirection===0?-1:1;ensureTiltPreview();window.chrome.webview.postMessage(`tilt-direction\t${tiltDirection}`)};
+tiltTransitionControl.oninput=()=>{tiltTransition=Number(tiltTransitionControl.value);updateTiltUi()};
+tiltAngleControl.onchange=()=>window.chrome.webview.postMessage(`tilt-angle\t${tiltAngleControl.value}`);
+tiltTransitionControl.onchange=()=>window.chrome.webview.postMessage(`tilt-transition\t${tiltTransitionControl.value}`);
+document.getElementById('preview-tilt').onclick=()=>window.chrome.webview.postMessage('preview-tilt');
 document.querySelectorAll('.range-scale').forEach(scale=>{
   const control=document.getElementById(scale.dataset.range);
   scale.querySelectorAll('button').forEach(marker=>{
@@ -796,6 +998,79 @@ window.chrome.webview.addEventListener('message',event=>{
   }else if(type==='shake-preview-triggered'){
     shakePreviewUntil=performance.now()+2000;
     ensureShakePreview();
+  }else if(type==='brightness-enabled'){
+    brightnessEnabled=value==='1';
+    brightnessEnabledControl.checked=brightnessEnabled;
+    updateBrightnessPreview();
+  }else if(type==='brightness-idle'){
+    brightnessIdle=Number(value);
+    brightnessIdleControl.value=value;
+    updateBrightnessUi();
+    updateBrightnessPreview();
+  }else if(type==='brightness-reaction'){
+    brightnessReaction=Number(value);
+    brightnessReactionControl.value=value;
+    updateBrightnessUi();
+    updateBrightnessPreview();
+  }else if(type==='brightness-transition'){
+    brightnessTransition=Number(value);
+    brightnessTransitionControl.value=value;
+    updateBrightnessUi();
+    updateBrightnessPreview();
+  }else if(type==='brightness-preview-triggered'){
+    brightnessPreviewUntil=performance.now()+2000;
+    updateBrightnessPreview();
+    setTimeout(updateBrightnessPreview,2000);
+  }else if(type==='float-enabled'){
+    floatEnabled=value==='1';
+    floatEnabledControl.checked=floatEnabled;
+    if(floatEnabled)ensureFloatPreview();else stopFloatPreview();
+  }else if(type==='float-mode'){
+    floatMode=Number(value);
+    floatModeControl.value=value;
+    ensureFloatPreview();
+  }else if(type==='float-height'){
+    floatHeight=Number(value);
+    floatHeightControl.value=value;
+    updateFloatUi();
+  }else if(type==='float-cycle'){
+    floatCycle=Number(value);
+    floatCycleControl.value=value;
+    updateFloatUi();
+  }else if(type==='float-direction'){
+    floatDirection=Number(value);
+    floatDirectionControl.value=value;
+    updateFloatUi();
+  }else if(type==='float-drift'){
+    floatDrift=Number(value);
+    floatDriftControl.value=value;
+    updateFloatUi();
+  }else if(type==='float-preview-triggered'){
+    floatPreviewUntil=performance.now()+Math.max(2000,floatCycle);
+    ensureFloatPreview();
+  }else if(type==='tilt-enabled'){
+    tiltEnabled=value==='1';
+    tiltEnabledControl.checked=tiltEnabled;
+    if(tiltEnabled)ensureTiltPreview();else stopTiltPreview();
+  }else if(type==='tilt-angle'){
+    tiltAngle=Number(value);
+    tiltAngleControl.value=value;
+    updateTiltUi();
+  }else if(type==='tilt-direction'){
+    tiltDirection=Number(value);
+    tiltDirectionControl.value=value;
+    if(tiltDirection<2)tiltSign=tiltDirection===0?-1:1;
+  }else if(type==='tilt-transition'){
+    tiltTransition=Number(value);
+    tiltTransitionControl.value=value;
+    updateTiltUi();
+  }else if(type==='tilt-triggered'){
+    tiltSign=Number(value)<0?-1:1;
+    ensureTiltPreview();
+  }else if(type==='tilt-preview-triggered'){
+    tiltSign=Number(value)<0?-1:1;
+    tiltPreviewUntil=performance.now()+2000;
+    ensureTiltPreview();
   }
   updatePreview();
 });
