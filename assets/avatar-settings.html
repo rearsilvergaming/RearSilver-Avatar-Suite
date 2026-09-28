@@ -210,7 +210,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     </div>
   </section>
   <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Choose how you currently send Avatar Suite into OBS. This changes the relevant setup controls without altering the fixed Game Capture renderer.</p><div class="stack"><article class="card"><h3>Capture method</h3><label for="capture-method">Method</label><select id="capture-method"><option value="0">Game Capture — fixed transparent output</option><option value="1">Window Capture — visible application window</option><option value="2">Spout2 — requires OBS plugin</option></select><p class="status" id="capture-method-help">Game Capture receives the stable fixed-size renderer.</p></article><article class="card" id="window-capture-note" hidden><h3>Window Capture sizing</h3><p>OBS follows the application client size. The restored window remains 16:9; maximise it or press F11 for clean borderless fullscreen. Press F11, Escape, or double-click the renderer to restore it.</p></article><article class="card" id="spout-setup" hidden><h3>Spout2 setup</h3><p>Spout2 requires the separate OBS Spout2 plugin. Install it, add a <strong>Spout2 Capture</strong> source, select <strong>RearSilver Avatar Suite</strong>, then choose <strong>Premultiplied Alpha</strong>.</p><div class="setting-row"><div class="file-state"><div class="file-name">Sender: RearSilver Avatar Suite</div><div class="status" id="spout-status">Starting sender…</div></div><button class="primary" id="get-spout-plugin">Get OBS Spout2 plugin</button></div></article></div></section>
-  <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">General controls will be added in a later approved stage.</p></section>
+  <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">Manage how Avatar Suite works alongside RearSilver Stream Suite.</p><div class="cards"><article class="card"><h3>Stream Suite companion</h3><p>Stream Suite can own the launch relationship between both applications without adding Avatar Suite to Windows startup.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="stream-suite-state">Checking for Stream Suite…</div><div class="status" id="stream-suite-detail">Looking for a registered Control Hub installation.</div></div><button class="primary" id="open-stream-suite" disabled>Open Stream Suite</button></div></article><article class="card"><h3>Open with Stream Suite</h3><p id="stream-suite-integration-copy">Checking whether the installed Stream Suite supports named companion applications.</p><div class="setting-row"><label style="margin:0"><input id="open-with-stream-suite" type="checkbox" disabled> Open Avatar Suite with Stream Suite</label><span class="tag" id="stream-suite-integration-status">Checking support</span></div></article></div></section>
   <section class="panel page" data-page="feedback" hidden><h2>Feedback &amp; Diagnostics</h2><p class="intro">Describe an issue and export the information needed to investigate it. This page will use the same privacy-first workflow as Stream Suite.</p><div class="cards"><article class="card"><h3>Your feedback</h3><p>Record what you were doing, what happened, and whether the issue can be reproduced.</p><span class="tag">Feedback workflow next</span></article><article class="card"><h3>Diagnostic package</h3><p>Review renderer, capture, microphone, WebView2, and application logs before choosing whether to export them.</p><span class="tag">Nothing sent automatically</span></article></div></section>
   <section class="panel page" data-page="updates" hidden><h2>Updates</h2><p class="intro">Review the installed Avatar Suite version and manage updates using the same workflow as Stream Suite.</p><div class="cards"><article class="card"><h3>Software updates</h3><p>Update checking, release notes, downloading, and installer handoff will appear here.</p><span class="tag">Updater integration next</span></article><article class="card"><h3>Stream Suite companion</h3><p>Avatar Suite can be registered as a companion application and opened with Stream Suite.</p><span class="tag">Companion integration next</span></article></div></section>
   <section class="panel page" data-page="help" hidden><h2>Help</h2><p class="intro">Find setup guidance and local support information for Avatar Suite.</p><div class="cards"><article class="card"><h3>Documentation</h3><p>Capture setup, avatar configuration, effects, and troubleshooting guidance will be available here.</p></article><article class="card"><h3>Application information</h3><p>Version, build, licences, and application data locations will be collected here.</p></article></div></section>
@@ -247,12 +247,15 @@ function showPage(name){
   const details=pageDetails[name]||pageDetails.avatar;
   document.getElementById('page-title').textContent=details[0];
   document.getElementById('page-intro').textContent=details[1];
-  const toolsPage=['feedback','updates','help'].includes(name);
-  document.getElementById('preview-card').hidden=toolsPage;
-  document.querySelector('.settings-layout').classList.toggle('tools-page',toolsPage);
+  const fullWidthPage=['general','feedback','updates','help'].includes(name);
+  document.getElementById('preview-card').hidden=fullWidthPage;
+  document.querySelector('.settings-layout').classList.toggle('tools-page',fullWidthPage);
   window.chrome.webview.postMessage(`page-changed\t${name}`);
 }
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>showPage(tab.dataset.page));
+document.getElementById('open-stream-suite').onclick=()=>window.chrome.webview.postMessage('open-stream-suite');
+const openWithStreamSuite=document.getElementById('open-with-stream-suite');
+openWithStreamSuite.onchange=()=>window.chrome.webview.postMessage(`open-with-stream-suite\t${openWithStreamSuite.checked?'1':'0'}`);
 const backgroundMode=document.getElementById('background-mode');
 const captureMethod=document.getElementById('capture-method');
 const backgroundSolidColour=document.getElementById('background-solid-colour');
@@ -892,6 +895,23 @@ window.chrome.webview.addEventListener('message',event=>{
   const status=document.getElementById('avatar-status');
   if(type==='navigate-page'){
     showPage(value);
+  }else if(type==='stream-suite-state'){
+    const states={
+      ready:['Stream Suite installed','The registered Control Hub installation supports Avatar Suite companions.','Ready','When enabled, the Control Hub opens Avatar Suite as an independent companion application.'],
+      unsupported:['Stream Suite update required','The registered Control Hub predates Avatar Suite companion support.','Update required','Install a Stream Suite version that supports Avatar Suite companion launching. Avatar Suite will continue to work independently.'],
+      invalid:['Stream Suite installation is invalid','The registered Control Hub executable is missing or its installation location is invalid.','Unavailable','Repair or reinstall Stream Suite before enabling companion launching.'],
+      missing:['Stream Suite not installed','No registered Stream Suite installation was found.','Not installed','Install Stream Suite to enable companion launching. Avatar Suite will continue to work independently.']
+    };
+    const state=states[value]||states.missing;
+    const ready=value==='ready';
+    document.getElementById('stream-suite-state').textContent=state[0];
+    document.getElementById('stream-suite-detail').textContent=state[1];
+    document.getElementById('stream-suite-integration-status').textContent=state[2];
+    document.getElementById('stream-suite-integration-copy').textContent=state[3];
+    document.getElementById('open-stream-suite').disabled=!ready;
+    openWithStreamSuite.disabled=!ready;
+  }else if(type==='open-with-stream-suite'){
+    openWithStreamSuite.checked=value==='1';
   }else if(type==='capture-method'){
     captureMethod.value=value;configureBackgroundChoices();
   }else if(type==='spout-status'){

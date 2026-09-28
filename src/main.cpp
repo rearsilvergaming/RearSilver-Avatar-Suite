@@ -35,6 +35,7 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"RearSilverAvatarWindow";
 constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar Suite";
+constexpr wchar_t kSingleInstanceMutex[] = L"Local\\RearSilverAvatarSuite.SingleInstance";
 constexpr UINT kRenderFailureMessage = WM_APP + 1;
 constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
 constexpr UINT kImageUploadSuccessMessage = WM_APP + 3;
@@ -2662,10 +2663,26 @@ HWND showSplashWindow(HINSTANCE instance)
 
 int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 {
+    HANDLE singleInstance = CreateMutexW(nullptr, FALSE, kSingleInstanceMutex);
+    if (singleInstance && GetLastError() == ERROR_ALREADY_EXISTS) {
+        if (HWND existing = FindWindowW(kWindowClass, kWindowTitle)) {
+            if (IsIconic(existing))
+                ShowWindow(existing, SW_RESTORE);
+            else
+                ShowWindow(existing, SW_SHOW);
+            SetForegroundWindow(existing);
+        }
+        CloseHandle(singleInstance);
+        return 0;
+    }
+
     startLog();
     const HRESULT com = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
-    if (FAILED(com))
+    if (FAILED(com)) {
+        if (singleInstance)
+            CloseHandle(singleInstance);
         return 1;
+    }
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
     showSplashWindow(instance);
@@ -2683,6 +2700,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     windowClass.hbrBackground = nullptr;
     if (!RegisterClassExW(&windowClass)) {
         CoUninitialize();
+        if (singleInstance)
+            CloseHandle(singleInstance);
         return 2;
     }
 
@@ -2696,6 +2715,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
                                    instance, nullptr);
     if (!g_mainWindow) {
         CoUninitialize();
+        if (singleInstance)
+            CloseHandle(singleInstance);
         return 3;
     }
     RECT client{};
@@ -3028,5 +3049,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     if (g_logFile != INVALID_HANDLE_VALUE)
         CloseHandle(g_logFile);
     CoUninitialize();
+    if (singleInstance)
+        CloseHandle(singleInstance);
     return static_cast<int>(message.wParam);
 }

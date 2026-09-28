@@ -7,6 +7,7 @@
 #include <wrl.h>
 #include <wrl/event.h>
 #include <atomic>
+#include <filesystem>
 #include <string>
 
 using Microsoft::WRL::Callback;
@@ -24,6 +25,114 @@ bool g_webViewReady = false;
 std::atomic<bool> g_settingsVisible{false};
 std::wstring g_pendingPage;
 std::wstring g_lastSettingsPage = L"avatar";
+
+struct StreamSuiteState {
+    bool registered = false;
+    bool installValid = false;
+    bool companionSupported = false;
+    std::wstring executable;
+};
+
+std::wstring avatarSettingsFilePath()
+{
+    wchar_t localAppData[32768]{};
+    const DWORD length = GetEnvironmentVariableW(
+        L"LOCALAPPDATA", localAppData, ARRAYSIZE(localAppData));
+    if (!length || length >= ARRAYSIZE(localAppData))
+        return {};
+    const std::wstring directory = std::wstring(localAppData, length) + L"\\RearSilver Avatar";
+    CreateDirectoryW(directory.c_str(), nullptr);
+    return directory + L"\\settings.ini";
+}
+
+void ensureUnicodeSettingsFile(const std::wstring &path)
+{
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE,
+                              FILE_SHARE_READ, nullptr, OPEN_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE)
+        return;
+    LARGE_INTEGER size{};
+    if (GetFileSizeEx(file, &size) && size.QuadPart == 0) {
+        const wchar_t bom = 0xfeff;
+        DWORD written = 0;
+        WriteFile(file, &bom, sizeof(bom), &written, nullptr);
+    }
+    CloseHandle(file);
+}
+
+bool openWithStreamSuiteEnabled()
+{
+    const std::wstring settings = avatarSettingsFilePath();
+    if (settings.empty())
+        return false;
+    wchar_t value[16]{};
+    GetPrivateProfileStringW(L"Avatar", L"OpenWithStreamSuite", L"0", value,
+                             ARRAYSIZE(value), settings.c_str());
+    return wcscmp(value, L"1") == 0;
+}
+
+void saveOpenWithStreamSuite(bool enabled)
+{
+    const std::wstring settings = avatarSettingsFilePath();
+    if (!settings.empty()) {
+        ensureUnicodeSettingsFile(settings);
+        WritePrivateProfileStringW(L"Avatar", L"OpenWithStreamSuite",
+                                   enabled ? L"1" : L"0", settings.c_str());
+    }
+}
+
+StreamSuiteState streamSuiteState()
+{
+    StreamSuiteState state;
+    constexpr wchar_t uninstallKey[] =
+        L"SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RearSilver Stream Suite";
+    HKEY key = nullptr;
+    if (RegOpenKeyExW(HKEY_LOCAL_MACHINE, uninstallKey, 0,
+                      KEY_READ | KEY_WOW64_64KEY, &key) != ERROR_SUCCESS)
+        return state;
+    state.registered = true;
+
+    wchar_t installLocation[32768]{};
+    DWORD bytes = sizeof(installLocation);
+    const LSTATUS locationResult = RegGetValueW(
+        key, nullptr, L"InstallLocation", RRF_RT_REG_SZ, nullptr, installLocation, &bytes);
+    DWORD schema = 0;
+    DWORD schemaBytes = sizeof(schema);
+    const LSTATUS schemaResult = RegGetValueW(
+        key, nullptr, L"AvatarCompanionSchema", RRF_RT_REG_DWORD, nullptr,
+        &schema, &schemaBytes);
+    RegCloseKey(key);
+    state.companionSupported = schemaResult == ERROR_SUCCESS && schema >= 1;
+
+    if (locationResult == ERROR_SUCCESS && installLocation[0]) {
+        const std::filesystem::path installPath(installLocation);
+        if (installPath.is_absolute()) {
+            const std::filesystem::path executable =
+                installPath / L"Control Hub" / L"RearSilver-Stream-Suite-Control-Hub.exe";
+            const DWORD attributes = GetFileAttributesW(executable.c_str());
+            if (attributes != INVALID_FILE_ATTRIBUTES && !(attributes & FILE_ATTRIBUTE_DIRECTORY)) {
+                state.installValid = true;
+                state.executable = executable.wstring();
+            }
+        }
+    }
+    return state;
+}
+
+void sendGeneralState()
+{
+    if (!g_webView)
+        return;
+    const StreamSuiteState state = streamSuiteState();
+    const wchar_t *status = !state.registered ? L"missing" :
+                            !state.installValid ? L"invalid" :
+                            !state.companionSupported ? L"unsupported" : L"ready";
+    g_webView->PostWebMessageAsString(
+        (L"stream-suite-state\t" + std::wstring(status)).c_str());
+    g_webView->PostWebMessageAsString(
+        (L"open-with-stream-suite\t" + std::wstring(openWithStreamSuiteEnabled() ? L"1" : L"0")).c_str());
+}
 
 void sendPendingPage()
 {
@@ -142,6 +251,21 @@ void initialiseWebView()
                                                 const std::wstring page(message + 13);
                                                 if (page != L"feedback" && page != L"updates" && page != L"help")
                                                     g_lastSettingsPage = page;
+                                                if (page == L"general")
+                                                    sendGeneralState();
+                                            }
+                                            else if (wcscmp(message, L"open-stream-suite") == 0) {
+                                                const StreamSuiteState state = streamSuiteState();
+                                                if (state.installValid && state.companionSupported)
+                                                    ShellExecuteW(g_settingsWindow, L"open", state.executable.c_str(),
+                                                                  nullptr, nullptr, SW_SHOWNORMAL);
+                                                sendGeneralState();
+                                            }
+                                            else if (wcsncmp(message, L"open-with-stream-suite\t", 23) == 0) {
+                                                const StreamSuiteState state = streamSuiteState();
+                                                if (state.installValid && state.companionSupported)
+                                                    saveOpenWithStreamSuite(wcscmp(message + 23, L"1") == 0);
+                                                sendGeneralState();
                                             }
                                             else if (wcscmp(message, L"open-spout-plugin") == 0)
                                                 ShellExecuteW(g_settingsWindow, L"open",
@@ -154,6 +278,7 @@ void initialiseWebView()
                                             else if (wcscmp(message, L"avatar-settings-ready") == 0) {
                                                 g_webViewReady = true;
                                                 sendPendingPage();
+                                                sendGeneralState();
                                                 if (g_ownerWindow && IsWindow(g_ownerWindow))
                                                     PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             }
