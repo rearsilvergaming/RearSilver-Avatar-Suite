@@ -2,6 +2,7 @@
 #include "resource.h"
 #include <objidl.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 #include <WebView2.h>
 #include <wrl.h>
 #include <wrl/event.h>
@@ -136,6 +137,10 @@ void initialiseWebView()
                                         if (SUCCEEDED(args->TryGetWebMessageAsString(&message)) && message) {
                                             if (wcscmp(message, L"close-settings") == 0)
                                                 PostMessageW(g_settingsWindow, WM_CLOSE, 0, 0);
+                                            else if (wcscmp(message, L"open-spout-plugin") == 0)
+                                                ShellExecuteW(g_settingsWindow, L"open",
+                                                    L"https://github.com/Off-World-Live/obs-spout2-plugin/releases",
+                                                    nullptr, nullptr, SW_SHOWNORMAL);
                                             else if (wcscmp(message, L"choose-avatar-png") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChoosePngMessage,

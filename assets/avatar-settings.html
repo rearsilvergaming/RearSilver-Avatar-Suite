@@ -194,7 +194,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
       <article class="card" id="background-image-card" hidden><h3>Background image</h3><p>Choose a PNG to draw behind the avatar.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="background-image-file">No background image</div><div class="status" id="background-image-status">Choose a PNG to begin.</div></div><div class="setting-actions"><button id="remove-background-image">Remove image</button><button class="primary" id="choose-background-image">Choose PNG…</button></div></div><div class="control-grid"><div><label for="background-fit">Image fitting</label><select id="background-fit"><option value="0">Contain</option><option value="1">Cover</option><option value="2">Stretch</option><option value="3">Tile</option></select></div><div><label>Uncovered area</label><p class="status">Contain preserves the complete image and may leave neutral space when aspect ratios differ.</p></div></div></article>
     </div>
   </section>
-  <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Choose how you currently send Avatar Suite into OBS. This changes the relevant setup controls without altering the fixed Game Capture renderer.</p><div class="stack"><article class="card"><h3>Capture method</h3><label for="capture-method">Method</label><select id="capture-method"><option value="0">Game Capture — fixed transparent output</option><option value="1">Window Capture — visible application window</option><option value="2" disabled>Spout2 — coming soon</option></select><p class="status" id="capture-method-help">Game Capture receives the stable fixed-size renderer.</p></article><article class="card" id="window-capture-note" hidden><h3>Window Capture sizing</h3><p>OBS follows the application client size. The restored window remains 16:9; maximise it or press F11 for clean borderless fullscreen. Press F11, Escape, or double-click the renderer to restore it.</p></article></div></section>
+  <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Choose how you currently send Avatar Suite into OBS. This changes the relevant setup controls without altering the fixed Game Capture renderer.</p><div class="stack"><article class="card"><h3>Capture method</h3><label for="capture-method">Method</label><select id="capture-method"><option value="0">Game Capture — fixed transparent output</option><option value="1">Window Capture — visible application window</option><option value="2">Spout2 — requires OBS plugin</option></select><p class="status" id="capture-method-help">Game Capture receives the stable fixed-size renderer.</p></article><article class="card" id="window-capture-note" hidden><h3>Window Capture sizing</h3><p>OBS follows the application client size. The restored window remains 16:9; maximise it or press F11 for clean borderless fullscreen. Press F11, Escape, or double-click the renderer to restore it.</p></article><article class="card" id="spout-setup" hidden><h3>Spout2 setup</h3><p>Spout2 requires the separate OBS Spout2 plugin. Install it, add a <strong>Spout2 Capture</strong> source, select <strong>RearSilver Avatar Suite</strong>, then choose <strong>Premultiplied Alpha</strong>.</p><div class="setting-row"><div class="file-state"><div class="file-name">Sender: RearSilver Avatar Suite</div><div class="status" id="spout-status">Starting sender…</div></div><button class="primary" id="get-spout-plugin">Get OBS Spout2 plugin</button></div></article></div></section>
   <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">General controls will be added in a later approved stage.</p></section>
   </div>
   <aside class="card preview-card">
@@ -234,6 +234,7 @@ function updateBackgroundUi(){
 }
 function configureBackgroundChoices(){
   const windowCapture=captureMethod.value==='1';
+  const spoutCapture=captureMethod.value==='2';
   const current=backgroundMode.value;
   backgroundMode.replaceChildren();
   const choices=windowCapture
@@ -242,9 +243,12 @@ function configureBackgroundChoices(){
   choices.forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;backgroundMode.append(option)});
   backgroundMode.value=choices.some(([value])=>value===current)?current:choices[0][0];
   document.getElementById('window-capture-note').hidden=!windowCapture;
+  document.getElementById('spout-setup').hidden=!spoutCapture;
   document.getElementById('capture-method-help').textContent=windowCapture
     ? 'Window Capture receives the complete visible application client area.'
-    : 'Game Capture receives the stable fixed-size renderer.';
+    : spoutCapture
+      ? 'Spout2 shares the fixed 1920 × 1080 renderer directly with compatible applications.'
+      : 'Game Capture receives the stable fixed-size renderer.';
   updateBackgroundUi();
 }
 function updateBackgroundColour(input,value){
@@ -258,6 +262,7 @@ document.querySelectorAll('[data-chroma]').forEach(button=>button.onclick=()=>{b
 backgroundFit.onchange=()=>window.chrome.webview.postMessage(`background-fit\t${backgroundFit.value}`);
 document.getElementById('choose-background-image').onclick=()=>{document.getElementById('background-image-status').textContent='Waiting for a PNG selection…';window.chrome.webview.postMessage('choose-background-image')};
 document.getElementById('remove-background-image').onclick=()=>window.chrome.webview.postMessage('remove-background-image');
+document.getElementById('get-spout-plugin').onclick=()=>window.chrome.webview.postMessage('open-spout-plugin');
 configureBackgroundChoices();
 document.getElementById('choose-avatar').onclick=()=>{
   document.getElementById('avatar-status').textContent='Waiting for a PNG selection…';
@@ -851,6 +856,8 @@ window.chrome.webview.addEventListener('message',event=>{
     showPage(value);
   }else if(type==='capture-method'){
     captureMethod.value=value;configureBackgroundChoices();
+  }else if(type==='spout-status'){
+    document.getElementById('spout-status').textContent=value==='2'?'Active — ready for OBS':value==='1'?'Starting sender…':value==='3'?'Unavailable — check graphics compatibility':'Inactive';
   }else if(type==='background-mode'){
     backgroundMode.value=value;updateBackgroundUi();
   }else if(type==='background-solid-colour'){

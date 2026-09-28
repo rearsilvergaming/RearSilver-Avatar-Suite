@@ -1,5 +1,23 @@
 cmake_minimum_required(VERSION 3.20)
 project(RearSilverAvatarSuite LANGUAGES CXX)
+set(SPOUT2_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/spout2/SPOUTSDK")
+add_library(RearSilverSpout2 STATIC
+  "${SPOUT2_ROOT}/SpoutDirectX/SpoutDX/SpoutDX.cpp"
+  "${SPOUT2_ROOT}/SpoutGL/SpoutCopy.cpp"
+  "${SPOUT2_ROOT}/SpoutGL/SpoutDirectX.cpp"
+  "${SPOUT2_ROOT}/SpoutGL/SpoutFrameCount.cpp"
+  "${SPOUT2_ROOT}/SpoutGL/SpoutSenderNames.cpp"
+  "${SPOUT2_ROOT}/SpoutGL/SpoutSharedMemory.cpp"
+  "${SPOUT2_ROOT}/SpoutGL/SpoutUtils.cpp")
+target_compile_features(RearSilverSpout2 PRIVATE cxx_std_17)
+target_compile_definitions(RearSilverSpout2 PRIVATE SPOUT_BUILD_STATIC UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_include_directories(RearSilverSpout2 PUBLIC
+  "${SPOUT2_ROOT}/SpoutDirectX/SpoutDX"
+  "${SPOUT2_ROOT}/SpoutGL")
+target_link_libraries(RearSilverSpout2 PUBLIC opengl32 kernel32 user32 gdi32 winspool comdlg32 comctl32 advapi32 shell32 ole32 oleaut32 uuid odbc32 odbccp32 d3d9 d3d11 dxgi version winmm)
+if(MSVC)
+  target_compile_options(RearSilverSpout2 PRIVATE /EHsc)
+endif()
 add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/audio_monitor.cpp src/app.rc)
 set_target_properties(RearSilverAvatarSuite PROPERTIES OUTPUT_NAME "RearSilver Avatar Suite")
 target_compile_features(RearSilverAvatarSuite PRIVATE cxx_std_17)
@@ -9,6 +27,7 @@ endif()
 target_compile_definitions(RearSilverAvatarSuite PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(RearSilverAvatarSuite PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include")
 target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 msimg32 user32 version
+  RearSilverSpout2
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
 add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
@@ -17,6 +36,9 @@ add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/avatar-settings.html"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/avatar-settings.html"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/third_party/spout2/LICENSE"
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/spout2-license.txt"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/RearSilver Avatar Suite - Header.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/settings-header.png"

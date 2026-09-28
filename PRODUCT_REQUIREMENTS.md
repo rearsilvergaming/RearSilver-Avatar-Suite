@@ -206,7 +206,9 @@ Profiles, microphone-driven states, blinking, and effects are outside the first 
 - The quick rail order is Presets, Reactions, WebSocket, Backgrounds, then Settings.
 - Clicking Backgrounds opens or focuses Settings directly on the Backgrounds page. It does not cycle or change the active background.
 - Direct navigation must also work while the Settings WebView is still starting.
-- Game Capture and future Spout2 offer Transparent or Background image; Window Capture offers Solid colour, Chroma key, or Background image.
+- Game Capture and Spout2 offer Transparent or Background image; Window Capture offers Solid colour, Chroma key, or Background image.
+- Spout2 publishes the existing fixed 1920 × 1080 premultiplied-alpha D3D11 frame under the sender name `RearSilver Avatar Suite`. The sender exists only while Spout2 is selected and releases its resources when another capture method is chosen or the app closes.
+- Selecting Spout2 clearly states that the separate OBS Spout2 plugin is required, links to its official release page, shows sender status, and instructs the user to add a Spout2 Capture source with Premultiplied Alpha compositing.
 - Solid and chroma backgrounds support custom colours; chroma also offers common colour presets. Their controls appear only in their applicable mode.
 - Background images support Contain, Cover, Stretch, and Tile fitting.
 - In Window Capture mode, the selected background fills the complete application client area and the avatar renderer remains transparent above it, so resizing never exposes a hardcoded window colour.

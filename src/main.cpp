@@ -9,6 +9,7 @@
 #include <tlhelp32.h>
 #include <wincodec.h>
 #include <wrl/client.h>
+#include <SpoutDX.h>
 
 #include "settings_window.h"
 #include "audio_monitor.h"
@@ -38,6 +39,7 @@ constexpr UINT kRenderFailureMessage = WM_APP + 1;
 constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
 constexpr UINT kImageUploadSuccessMessage = WM_APP + 3;
 constexpr UINT kBlinkStateMessage = WM_APP + 4;
+constexpr UINT kSpoutStatusChangedMessage = WM_APP + 5;
 constexpr UINT kOutputWidth = 1920;
 constexpr UINT kOutputHeight = 1080;
 constexpr UINT kOutputUiDpi = 192;
@@ -54,6 +56,7 @@ std::atomic<unsigned> g_backgroundSolidColour{0xffffff};
 std::atomic<unsigned> g_backgroundChromaColour{0x00ff00};
 std::atomic<unsigned> g_backgroundFit{0};
 std::atomic<unsigned> g_avatarScalePercent{100};
+std::atomic<unsigned> g_spoutStatus{0};
 std::atomic<UINT> g_clientWidth{960};
 std::atomic<UINT> g_clientHeight{720};
 std::atomic<bool> g_transformPending{true};
@@ -430,6 +433,17 @@ void sendAvatarTransformSettings()
 {
     postAvatarSettingsMessage(L"avatar-scale\t" +
                               std::to_wstring(g_avatarScalePercent.load()));
+}
+
+void sendSpoutSettings()
+{
+    postAvatarSettingsMessage(L"spout-status\t" + std::to_wstring(g_spoutStatus.load()));
+}
+
+void setSpoutStatus(HWND window, unsigned status)
+{
+    if (g_spoutStatus.exchange(status) != status)
+        PostMessageW(window, kSpoutStatusChangedMessage, status, 0);
 }
 
 const wchar_t *imageMessagePrefix(ImageSlot slot)
@@ -874,6 +888,14 @@ struct TextureAsset {
 
 class Renderer {
 public:
+    ~Renderer()
+    {
+        if (spoutDeviceOpen_) {
+            spoutSender_.ReleaseSender();
+            spoutSender_.CloseDirectX11();
+        }
+    }
+
     void initialize(HWND window)
     {
         window_ = window;
@@ -1334,10 +1356,43 @@ public:
 
         ID3D11ShaderResourceView *empty = nullptr;
         context_->PSSetShaderResources(0, 1, &empty);
+        updateSpoutOutput();
         check(swapChain_->Present(1, 0));
     }
 
 private:
+    void updateSpoutOutput()
+    {
+        if (g_captureMethod.load() != 2) {
+            if (spoutDeviceOpen_) {
+                spoutSender_.ReleaseSender();
+                spoutSender_.CloseDirectX11();
+                spoutDeviceOpen_ = false;
+            }
+            setSpoutStatus(window_, 0);
+            return;
+        }
+
+        if (!spoutDeviceOpen_) {
+            setSpoutStatus(window_, 1);
+            if (!spoutSender_.OpenDirectX11(device_.Get())) {
+                setSpoutStatus(window_, 3);
+                return;
+            }
+            spoutSender_.SetSenderName("RearSilver Avatar Suite");
+            spoutSender_.SetSenderFormat(DXGI_FORMAT_R8G8B8A8_UNORM);
+            spoutDeviceOpen_ = true;
+        }
+
+        ComPtr<ID3D11Texture2D> frame;
+        if (FAILED(swapChain_->GetBuffer(0, IID_PPV_ARGS(&frame))) ||
+            !spoutSender_.SendTexture(frame.Get())) {
+            setSpoutStatus(window_, 3);
+            return;
+        }
+        setSpoutStatus(window_, 2);
+    }
+
     TextureAsset createTexture(const void *pixels, UINT width, UINT height)
     {
         D3D11_TEXTURE2D_DESC description{};
@@ -1699,6 +1754,8 @@ private:
     TextureAsset settingsIcon_;
     TextureAsset backgroundImage_;
     bool backgroundImageLoaded_ = false;
+    spoutDX spoutSender_;
+    bool spoutDeviceOpen_ = false;
 };
 
 void renderThreadMain()
@@ -2102,6 +2159,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         sendBounceSettings();
         sendBackgroundSettings();
         sendAvatarTransformSettings();
+        sendSpoutSettings();
         postAvatarSettingsMessage(L"reaction-preview-off");
         return 0;
     case kAvatarSettingsBackgroundModeMessage:
@@ -2133,11 +2191,12 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         InvalidateRect(window, nullptr, TRUE);
         return 0;
     case kAvatarSettingsCaptureMethodMessage:
-        g_captureMethod.store(std::min<unsigned>(static_cast<unsigned>(wParam), 1));
+        g_captureMethod.store(std::min<unsigned>(static_cast<unsigned>(wParam), 2));
         saveSetting(L"CaptureMethod", std::to_wstring(g_captureMethod.load()));
         g_transformPending.store(true);
         InvalidateRect(window, nullptr, TRUE);
         sendBackgroundSettings();
+        sendSpoutSettings();
         return 0;
     case kAvatarSettingsScaleMessage:
         g_avatarScalePercent.store(
@@ -2471,6 +2530,9 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         postAvatarSettingsMessage(std::wstring(imageMessagePrefix(static_cast<ImageSlot>(wParam))) +
                                   L"-uploaded");
         return 0;
+    case kSpoutStatusChangedMessage:
+        sendSpoutSettings();
+        return 0;
     case kRenderFailureMessage: {
         g_running.store(false);
         wchar_t messageText[256]{};
@@ -2756,7 +2818,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 
     const std::wstring savedCaptureMethod = loadSetting(L"CaptureMethod");
     if (!savedCaptureMethod.empty())
-        g_captureMethod.store(std::min<unsigned>(wcstoul(savedCaptureMethod.c_str(), nullptr, 10), 1));
+        g_captureMethod.store(std::min<unsigned>(wcstoul(savedCaptureMethod.c_str(), nullptr, 10), 2));
     const std::wstring savedWindowBackgroundMode = loadSetting(L"WindowBackgroundMode");
     if (!savedWindowBackgroundMode.empty())
         g_windowBackgroundMode.store(std::clamp<unsigned>(
