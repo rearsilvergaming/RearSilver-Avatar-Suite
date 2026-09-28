@@ -8,7 +8,7 @@ if(MSVC)
 endif()
 target_compile_definitions(RearSilverAvatarSuite PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(RearSilverAvatarSuite PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include")
-target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 user32 version
+target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 msimg32 user32 version
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
 add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
@@ -44,6 +44,9 @@ add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - WebSocket.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-websocket.png"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Background.png"
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-background.png"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Settings.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-settings.png")

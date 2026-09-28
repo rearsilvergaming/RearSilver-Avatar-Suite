@@ -37,6 +37,9 @@ localPreviewTransform = calculateAspectFit(clientWidth, clientHeight, outputWidt
 
 Overlay state, panel dimensions, and other interface geometry must never be inputs to the avatar transform. In particular, do not calculate the avatar transform from the client area minus interface dimensions.
 
+- The Avatar page provides a persistent whole-avatar scale from 25% to 250%, defaulting to 100%. It scales primary, reaction, and blink states uniformly before effects without changing the fixed output canvas or OBS source geometry.
+- Show the exact avatar-scale percentage alongside descriptive clickable markers: Pocket-sized, Compact, Just right, Screen hog, and Absolute unit. Future layers inherit this avatar-root scale so their alignment remains intact.
+
 ## Authoritative UI direction
 
 - RearSilver Avatar Suite is a standalone companion product in the RearSilver Stream Suite family. Use the same core navigation and control language so users encounter familiar tabs, panels, buttons, typography, spacing, states, terminology, and cyan-accented dark visual treatment across both products.
@@ -196,6 +199,22 @@ Before an output architecture can be considered production-ready, it must demons
 Diagnostic 19 passed these checks on the target system with a fixed 1920×1080 composition swap chain: OBS acquisition, newly-created source dimensions, free resize and snap, maximise and restore, stable OBS scene geometry, aspect-fit local presentation, inverse pointer mapping, full-rate minimised animation, premultiplied alpha, and transparent/opaque backgrounds.
 
 Profiles, microphone-driven states, blinking, and effects are outside the first reconstructed baseline unless separately approved.
+
+## Background navigation
+
+- Backgrounds have a dedicated top-level Settings page, separate from capture and output configuration.
+- The quick rail order is Presets, Reactions, WebSocket, Backgrounds, then Settings.
+- Clicking Backgrounds opens or focuses Settings directly on the Backgrounds page. It does not cycle or change the active background.
+- Direct navigation must also work while the Settings WebView is still starting.
+- Game Capture and future Spout2 offer Transparent or Background image; Window Capture offers Solid colour, Chroma key, or Background image.
+- Solid and chroma backgrounds support custom colours; chroma also offers common colour presets. Their controls appear only in their applicable mode.
+- Background images support Contain, Cover, Stretch, and Tile fitting.
+- In Window Capture mode, the selected background fills the complete application client area and the avatar renderer remains transparent above it, so resizing never exposes a hardcoded window colour.
+- The restored renderer window starts with a 16:9 client area and preserves that client aspect ratio during manual edge or corner resizing. This prevents letterboxing in ordinary Window Capture use without changing the fixed Game Capture canvas.
+- Maximising the renderer or pressing F11 enters borderless fullscreen across the selected monitor's complete bounds. F11, Escape, Restore, or a double-click outside the quick-navigation rail restores the prior framed window placement.
+- Game Capture retains its fixed 1920 × 1080 output and uses transparency unless a background image is selected.
+- Capture methods retain their own previous background choice when the user switches between them; the selected image and fitting are shared.
+- A user can remove a previously selected background image without replacing it.
 
 ## Rejected architecture record
 

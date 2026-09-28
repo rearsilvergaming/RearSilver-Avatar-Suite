@@ -58,8 +58,16 @@ constexpr UINT kAvatarSettingsTiltAngleMessage = WM_APP + 65;
 constexpr UINT kAvatarSettingsTiltDirectionMessage = WM_APP + 66;
 constexpr UINT kAvatarSettingsTiltTransitionMessage = WM_APP + 67;
 constexpr UINT kAvatarSettingsPreviewTiltMessage = WM_APP + 68;
+constexpr UINT kAvatarSettingsBackgroundModeMessage = WM_APP + 69;
+constexpr UINT kAvatarSettingsBackgroundSolidColourMessage = WM_APP + 70;
+constexpr UINT kAvatarSettingsBackgroundChromaColourMessage = WM_APP + 71;
+constexpr UINT kAvatarSettingsChooseBackgroundImageMessage = WM_APP + 72;
+constexpr UINT kAvatarSettingsBackgroundFitMessage = WM_APP + 73;
+constexpr UINT kAvatarSettingsRemoveBackgroundImageMessage = WM_APP + 74;
+constexpr UINT kAvatarSettingsCaptureMethodMessage = WM_APP + 75;
+constexpr UINT kAvatarSettingsScaleMessage = WM_APP + 76;
 
-bool showAvatarSettingsWindow(HWND owner);
+bool showAvatarSettingsWindow(HWND owner, const std::wstring &page = L"");
 bool isAvatarSettingsWindowVisible();
 void postAvatarSettingsMessage(const std::wstring &message);
 void setAvatarSettingsPreviewImage(unsigned slot, const std::wstring &path);

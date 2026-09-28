@@ -19,7 +19,17 @@ HWND g_ownerWindow = nullptr;
 ComPtr<ICoreWebView2Controller> g_controller;
 ComPtr<ICoreWebView2> g_webView;
 bool g_initialising = false;
+bool g_webViewReady = false;
 std::atomic<bool> g_settingsVisible{false};
+std::wstring g_pendingPage;
+
+void sendPendingPage()
+{
+    if (!g_webView || !g_webViewReady || g_pendingPage.empty())
+        return;
+    g_webView->PostWebMessageAsString((L"navigate-page\t" + g_pendingPage).c_str());
+    g_pendingPage.clear();
+}
 
 std::wstring executableDirectory()
 {
@@ -130,9 +140,16 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChoosePngMessage,
                                                              0, reinterpret_cast<LPARAM>(g_settingsWindow));
-                                            else if (wcscmp(message, L"avatar-settings-ready") == 0 &&
+                                            else if (wcscmp(message, L"avatar-settings-ready") == 0) {
+                                                g_webViewReady = true;
+                                                sendPendingPage();
+                                                if (g_ownerWindow && IsWindow(g_ownerWindow))
+                                                    PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
+                                            }
+                                            else if (wcsncmp(message, L"avatar-scale\t", 13) == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
-                                                PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsScaleMessage,
+                                                             wcstoul(message + 13, nullptr, 10), 0);
                                             else if (wcscmp(message, L"choose-reaction-png") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChooseReactionPngMessage,
@@ -343,6 +360,37 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsPreviewTiltMessage,
                                                              0, 0);
+                                            else if (wcsncmp(message, L"background-mode\t", 16) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBackgroundModeMessage,
+                                                             wcstoul(message + 16, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"background-solid-colour\t", 24) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow,
+                                                             kAvatarSettingsBackgroundSolidColourMessage, 0,
+                                                             reinterpret_cast<LPARAM>(new std::wstring(message + 24)));
+                                            else if (wcsncmp(message, L"background-chroma-colour\t", 25) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow,
+                                                             kAvatarSettingsBackgroundChromaColourMessage, 0,
+                                                             reinterpret_cast<LPARAM>(new std::wstring(message + 25)));
+                                            else if (wcscmp(message, L"choose-background-image") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow,
+                                                             kAvatarSettingsChooseBackgroundImageMessage, 0,
+                                                             reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcscmp(message, L"remove-background-image") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow,
+                                                             kAvatarSettingsRemoveBackgroundImageMessage, 0, 0);
+                                            else if (wcsncmp(message, L"background-fit\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsBackgroundFitMessage,
+                                                             wcstoul(message + 15, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"capture-method\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsCaptureMethodMessage,
+                                                             wcstoul(message + 15, nullptr, 10), 0);
                                             else if (wcscmp(message, L"calibrate-noise") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsCalibrateNoiseMessage,
@@ -374,9 +422,11 @@ LRESULT CALLBACK settingsWindowProcedure(HWND window, UINT message, WPARAM wPara
 }
 } // namespace
 
-bool showAvatarSettingsWindow(HWND owner)
+bool showAvatarSettingsWindow(HWND owner, const std::wstring &page)
 {
     g_ownerWindow = owner;
+    if (!page.empty())
+        g_pendingPage = page;
     if (!g_settingsWindow) {
         WNDCLASSEXW windowClass{};
         windowClass.cbSize = sizeof(windowClass);
@@ -404,6 +454,7 @@ bool showAvatarSettingsWindow(HWND owner)
         g_controller->put_IsVisible(TRUE);
     else
         initialiseWebView();
+    sendPendingPage();
     return true;
 }
 
@@ -425,6 +476,7 @@ void setAvatarSettingsPreviewImage(unsigned slot, const std::wstring &path)
     const wchar_t *fileName = slot == 1 ? L"reaction.png"
                               : slot == 2 ? L"primary-blink.png"
                               : slot == 3 ? L"reaction-blink.png"
+                              : slot == 4 ? L"background.png"
                                           : L"primary.png";
     const std::wstring cachedPath = previewDirectory() + L"\\" + fileName;
     if (!CopyFileW(path.c_str(), cachedPath.c_str(), FALSE))
@@ -432,6 +484,7 @@ void setAvatarSettingsPreviewImage(unsigned slot, const std::wstring &path)
     const wchar_t *message = slot == 1 ? L"reaction-preview-image\t"
                              : slot == 2 ? L"primary-blink-preview-image\t"
                              : slot == 3 ? L"reaction-blink-preview-image\t"
+                             : slot == 4 ? L"background-preview-image\t"
                                          : L"primary-preview-image\t";
     postAvatarSettingsMessage(std::wstring(message) +
                               fileName + L"?revision=" + std::to_wstring(GetTickCount64()));
@@ -446,9 +499,11 @@ void shutdownAvatarSettingsWindow()
     }
     g_webView.Reset();
     g_controller.Reset();
+    g_webViewReady = false;
     if (g_settingsWindow) {
         DestroyWindow(g_settingsWindow);
         g_settingsWindow = nullptr;
     }
     g_ownerWindow = nullptr;
+    g_pendingPage.clear();
 }

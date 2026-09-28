@@ -47,10 +47,19 @@ std::atomic<bool> g_running{false};
 std::atomic<bool> g_applicationActive{true};
 std::atomic<bool> g_dialogOpen{false};
 std::atomic<bool> g_reactionsEnabled{true};
-std::atomic<int> g_backgroundMode{0};
+std::atomic<unsigned> g_captureMethod{0};
+std::atomic<unsigned> g_fixedBackgroundMode{0};
+std::atomic<unsigned> g_windowBackgroundMode{2};
+std::atomic<unsigned> g_backgroundSolidColour{0xffffff};
+std::atomic<unsigned> g_backgroundChromaColour{0x00ff00};
+std::atomic<unsigned> g_backgroundFit{0};
+std::atomic<unsigned> g_avatarScalePercent{100};
 std::atomic<UINT> g_clientWidth{960};
 std::atomic<UINT> g_clientHeight{720};
 std::atomic<bool> g_transformPending{true};
+bool g_borderlessFullscreen = false;
+WINDOWPLACEMENT g_windowedPlacement{sizeof(WINDOWPLACEMENT)};
+LONG_PTR g_windowedStyle = WS_OVERLAPPEDWINDOW;
 
 std::mutex g_logMutex;
 HANDLE g_logFile = INVALID_HANDLE_VALUE;
@@ -60,6 +69,7 @@ enum class ImageSlot : WPARAM {
     Reaction = 1,
     PrimaryBlink = 2,
     ReactionBlink = 3,
+    Background = 4,
 };
 
 struct PendingImage {
@@ -86,6 +96,12 @@ std::wstring g_primaryBlinkImagePath;
 bool g_primaryBlinkImageLoaded = false;
 std::wstring g_reactionBlinkImagePath;
 bool g_reactionBlinkImageLoaded = false;
+std::wstring g_backgroundImagePath;
+bool g_backgroundImageLoaded = false;
+std::mutex g_windowBackgroundMutex;
+std::vector<unsigned char> g_windowBackgroundBgra;
+UINT g_windowBackgroundWidth = 0;
+UINT g_windowBackgroundHeight = 0;
 std::atomic<bool> g_previewReaction{false};
 std::atomic<bool> g_microphoneReaction{false};
 std::atomic<bool> g_reactionAvailable{false};
@@ -170,6 +186,7 @@ struct UiLayout {
     RectF presets;
     RectF reactions;
     RectF websocket;
+    RectF backgrounds;
     RectF settings;
 };
 
@@ -184,7 +201,8 @@ UiLayout calculateUiLayout(UINT, UINT, UINT dpi)
     result.presets = {margin, margin, iconSize, iconSize};
     result.reactions = {margin, margin + (iconSize + gap), iconSize, iconSize};
     result.websocket = {margin, margin + 2.0f * (iconSize + gap), iconSize, iconSize};
-    result.settings = {margin, margin + 3.0f * (iconSize + gap), iconSize, iconSize};
+    result.backgrounds = {margin, margin + 3.0f * (iconSize + gap), iconSize, iconSize};
+    result.settings = {margin, margin + 4.0f * (iconSize + gap), iconSize, iconSize};
     return result;
 }
 
@@ -344,12 +362,83 @@ void sendBlinkImageState(ImageSlot slot)
     }
 }
 
+std::wstring colourText(unsigned colour)
+{
+    wchar_t value[8]{};
+    swprintf_s(value, L"#%06X", colour & 0xffffff);
+    return value;
+}
+
+unsigned activeBackgroundMode()
+{
+    return g_captureMethod.load() == 1 ? g_windowBackgroundMode.load()
+                                       : g_fixedBackgroundMode.load();
+}
+
+void cacheWindowBackground(const PendingImage &image)
+{
+    std::vector<unsigned char> bgra = image.rgba;
+    for (size_t index = 0; index + 3 < bgra.size(); index += 4) {
+        const unsigned alpha = bgra[index + 3];
+        bgra[index] = static_cast<unsigned char>(bgra[index] * alpha / 255);
+        bgra[index + 1] = static_cast<unsigned char>(bgra[index + 1] * alpha / 255);
+        bgra[index + 2] = static_cast<unsigned char>(bgra[index + 2] * alpha / 255);
+        std::swap(bgra[index], bgra[index + 2]);
+    }
+    {
+        std::lock_guard<std::mutex> lock(g_windowBackgroundMutex);
+        g_windowBackgroundBgra = std::move(bgra);
+        g_windowBackgroundWidth = image.width;
+        g_windowBackgroundHeight = image.height;
+    }
+    if (g_mainWindow)
+        InvalidateRect(g_mainWindow, nullptr, TRUE);
+}
+
+unsigned parseColour(const std::wstring &text, unsigned fallback)
+{
+    const wchar_t *value = text.c_str();
+    if (*value == L'#')
+        ++value;
+    wchar_t *end = nullptr;
+    const unsigned long parsed = wcstoul(value, &end, 16);
+    return end && *end == L'\0' && end != value ? static_cast<unsigned>(parsed) & 0xffffff
+                                                : fallback;
+}
+
+void sendBackgroundSettings()
+{
+    postAvatarSettingsMessage(L"capture-method\t" + std::to_wstring(g_captureMethod.load()));
+    postAvatarSettingsMessage(L"background-mode\t" + std::to_wstring(activeBackgroundMode()));
+    postAvatarSettingsMessage(L"background-solid-colour\t" +
+                              colourText(g_backgroundSolidColour.load()));
+    postAvatarSettingsMessage(L"background-chroma-colour\t" +
+                              colourText(g_backgroundChromaColour.load()));
+    postAvatarSettingsMessage(L"background-fit\t" + std::to_wstring(g_backgroundFit.load()));
+    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+    if (g_backgroundImagePath.empty())
+        postAvatarSettingsMessage(L"background-image-empty");
+    else if (g_backgroundImageLoaded)
+        postAvatarSettingsMessage(L"background-image-current\t" +
+                                  fileNameFromPath(g_backgroundImagePath));
+    else
+        postAvatarSettingsMessage(L"background-image-unavailable\t" +
+                                  fileNameFromPath(g_backgroundImagePath));
+}
+
+void sendAvatarTransformSettings()
+{
+    postAvatarSettingsMessage(L"avatar-scale\t" +
+                              std::to_wstring(g_avatarScalePercent.load()));
+}
+
 const wchar_t *imageMessagePrefix(ImageSlot slot)
 {
     switch (slot) {
     case ImageSlot::Reaction: return L"reaction-image";
     case ImageSlot::PrimaryBlink: return L"primary-blink-image";
     case ImageSlot::ReactionBlink: return L"reaction-blink-image";
+    case ImageSlot::Background: return L"background-image";
     default: return L"avatar-image";
     }
 }
@@ -728,6 +817,8 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
             if (!decodePng(path, decoded))
                 throw E_INVALIDARG;
             decoded.slot = slot;
+            if (slot == ImageSlot::Background)
+                cacheWindowBackground(decoded);
             {
                 std::lock_guard<std::mutex> lock(g_pendingImageMutex);
                 g_pendingImages.push_back(std::move(decoded));
@@ -870,7 +961,10 @@ public:
 
         try {
             if (pending.clearSlot) {
-                if (pending.slot == ImageSlot::PrimaryBlink) {
+                if (pending.slot == ImageSlot::Background) {
+                    backgroundImage_ = {};
+                    backgroundImageLoaded_ = false;
+                } else if (pending.slot == ImageSlot::PrimaryBlink) {
                     primaryBlinkAvatar_ = {};
                     primaryBlinkAvatarLoaded_ = false;
                 } else if (pending.slot == ImageSlot::ReactionBlink) {
@@ -880,7 +974,16 @@ public:
                 return;
             }
             TextureAsset replacement = createTexture(pending.rgba.data(), pending.width, pending.height);
-            if (pending.slot == ImageSlot::Reaction) {
+            if (pending.slot == ImageSlot::Background) {
+                backgroundImage_ = std::move(replacement);
+                backgroundImageLoaded_ = true;
+                {
+                    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                    g_backgroundImagePath = pending.path;
+                    g_backgroundImageLoaded = true;
+                }
+                saveSetting(L"BackgroundImage", pending.path);
+            } else if (pending.slot == ImageSlot::Reaction) {
                 reactionAvatar_ = std::move(replacement);
                 reactionAvatarLoaded_ = true;
                 g_reactionAvailable.store(true);
@@ -917,7 +1020,7 @@ public:
                     saveSetting(L"PrimaryImage", pending.path);
                 }
             }
-            logMessage(L"Avatar atomically replaced after GPU upload: " + pending.path);
+            logMessage(L"Image atomically replaced after GPU upload: " + pending.path);
             if (pending.persistSelection)
                 PostMessageW(window_, kImageUploadSuccessMessage, static_cast<WPARAM>(pending.slot), 0);
         } catch (...) {
@@ -963,14 +1066,13 @@ public:
         updateBlinkState(now);
 
         float clear[4] = {0, 0, 0, 0};
-        const int background = g_backgroundMode.load();
-        if (background == 1) {
-            clear[1] = 1.0f;
-            clear[3] = 1.0f;
-        } else if (background == 2) {
-            clear[0] = 0.035f;
-            clear[1] = 0.045f;
-            clear[2] = 0.070f;
+        const unsigned background = g_captureMethod.load() == 1 ? 0 : g_fixedBackgroundMode.load();
+        if (background != 0) {
+            const unsigned colour = background == 2 ? g_backgroundChromaColour.load()
+                                                     : g_backgroundSolidColour.load();
+            clear[0] = static_cast<float>((colour >> 16) & 0xff) / 255.0f;
+            clear[1] = static_cast<float>((colour >> 8) & 0xff) / 255.0f;
+            clear[2] = static_cast<float>(colour & 0xff) / 255.0f;
             clear[3] = 1.0f;
         }
         context_->ClearRenderTargetView(target_.Get(), clear);
@@ -979,6 +1081,37 @@ public:
         D3D11_VIEWPORT viewport{0, 0, static_cast<float>(width_), static_cast<float>(height_), 0, 1};
         context_->RSSetViewports(1, &viewport);
         bindPipeline();
+
+        if (background == 3 && backgroundImageLoaded_) {
+            setPixelBrightness(1.0f);
+            const float imageWidth = static_cast<float>(backgroundImage_.width);
+            const float imageHeight = static_cast<float>(backgroundImage_.height);
+            const unsigned fit = g_backgroundFit.load();
+            if (fit == 2) {
+                draw(backgroundImage_, 0, 0, static_cast<float>(width_), static_cast<float>(height_));
+            } else if (fit == 3) {
+                float tileWidth = imageWidth;
+                float tileHeight = imageHeight;
+                const float columns = std::ceil(static_cast<float>(width_) / tileWidth);
+                const float rows = std::ceil(static_cast<float>(height_) / tileHeight);
+                if (columns * rows > 1024.0f) {
+                    const float expansion = std::sqrt(columns * rows / 1024.0f);
+                    tileWidth *= expansion;
+                    tileHeight *= expansion;
+                }
+                for (float y = 0; y < height_; y += tileHeight)
+                    for (float x = 0; x < width_; x += tileWidth)
+                        draw(backgroundImage_, x, y, tileWidth, tileHeight);
+            } else {
+                const float scaleX = static_cast<float>(width_) / imageWidth;
+                const float scaleY = static_cast<float>(height_) / imageHeight;
+                const float scale = fit == 1 ? std::max(scaleX, scaleY) : std::min(scaleX, scaleY);
+                const float drawWidth = imageWidth * scale;
+                const float drawHeight = imageHeight * scale;
+                draw(backgroundImage_, (static_cast<float>(width_) - drawWidth) * 0.5f,
+                     (static_cast<float>(height_) - drawHeight) * 0.5f, drawWidth, drawHeight);
+            }
+        }
 
         const float maxWidth = static_cast<float>(width_) * 0.68f;
         const float maxHeight = static_cast<float>(height_) * 0.68f;
@@ -991,7 +1124,8 @@ public:
             else if (!reactionState && primaryBlinkAvatarLoaded_)
                 activeAvatar = &primaryBlinkAvatar_;
         }
-        const float scale = std::min(maxWidth / activeAvatar->width, maxHeight / activeAvatar->height);
+        const float scale = std::min(maxWidth / activeAvatar->width, maxHeight / activeAvatar->height) *
+                            static_cast<float>(g_avatarScalePercent.load()) / 100.0f;
         float avatarWidth = activeAvatar->width * scale;
         float avatarHeight = activeAvatar->height * scale;
         const float baseBottom = (static_cast<float>(height_) + avatarHeight) * 0.5f;
@@ -1400,6 +1534,7 @@ private:
         reactionsOnIcon_ = loadRailIcon(L"rail-reactions-on.png");
         reactionsOffIcon_ = loadRailIcon(L"rail-reactions-off.png");
         websocketIcon_ = loadRailIcon(L"rail-websocket.png");
+        backgroundsIcon_ = loadRailIcon(L"rail-background.png");
         settingsIcon_ = loadRailIcon(L"rail-settings.png");
     }
 
@@ -1499,6 +1634,7 @@ private:
         drawRect(g_reactionsEnabled.load() ? reactionsOnIcon_ : reactionsOffIcon_, ui.reactions);
         drawRect(websocketIcon_, ui.websocket);
         drawRect(disabledOverlay_, ui.websocket);
+        drawRect(backgroundsIcon_, ui.backgrounds);
         drawRect(settingsIcon_, ui.settings);
     }
 
@@ -1559,7 +1695,10 @@ private:
     TextureAsset reactionsOnIcon_;
     TextureAsset reactionsOffIcon_;
     TextureAsset websocketIcon_;
+    TextureAsset backgroundsIcon_;
     TextureAsset settingsIcon_;
+    TextureAsset backgroundImage_;
+    bool backgroundImageLoaded_ = false;
 };
 
 void renderThreadMain()
@@ -1613,8 +1752,172 @@ void handlePointerRelease(HWND window, float x, float y)
             setMicrophoneReaction(false);
         return;
     }
+    if (ui.backgrounds.contains(outputX, outputY)) {
+        showAvatarSettingsWindow(window, L"backgrounds");
+        return;
+    }
     if (ui.settings.contains(outputX, outputY))
         showAvatarSettingsWindow(window);
+}
+
+bool pointIsOnRail(HWND window, float x, float y)
+{
+    RECT client{};
+    GetClientRect(window, &client);
+    const float clientWidth = static_cast<float>(client.right);
+    const float clientHeight = static_cast<float>(client.bottom);
+    if (clientWidth <= 0.0f || clientHeight <= 0.0f)
+        return false;
+
+    const float scale = std::min(clientWidth / kOutputWidth, clientHeight / kOutputHeight);
+    const float offsetX = (clientWidth - kOutputWidth * scale) * 0.5f;
+    const float offsetY = (clientHeight - kOutputHeight * scale) * 0.5f;
+    const float outputX = (x - offsetX) / scale;
+    const float outputY = (y - offsetY) / scale;
+    const UiLayout ui = calculateUiLayout(kOutputWidth, kOutputHeight, kOutputUiDpi);
+    return ui.presets.contains(outputX, outputY) ||
+           ui.reactions.contains(outputX, outputY) ||
+           ui.websocket.contains(outputX, outputY) ||
+           ui.backgrounds.contains(outputX, outputY) ||
+           ui.settings.contains(outputX, outputY);
+}
+
+void paintWindowBackground(HWND window, HDC target)
+{
+    RECT client{};
+    GetClientRect(window, &client);
+    const int targetWidth = std::max(1L, client.right - client.left);
+    const int targetHeight = std::max(1L, client.bottom - client.top);
+    const unsigned mode = activeBackgroundMode();
+    if (mode == 1 || mode == 2) {
+        const unsigned colour = mode == 2 ? g_backgroundChromaColour.load()
+                                           : g_backgroundSolidColour.load();
+        HBRUSH brush = CreateSolidBrush(RGB((colour >> 16) & 0xff, (colour >> 8) & 0xff,
+                                            colour & 0xff));
+        FillRect(target, &client, brush);
+        DeleteObject(brush);
+        return;
+    }
+
+    HBRUSH fallback = static_cast<HBRUSH>(GetStockObject(mode == 3 ? BLACK_BRUSH : WHITE_BRUSH));
+    FillRect(target, &client, fallback);
+    if (mode != 3)
+        return;
+
+    std::lock_guard<std::mutex> lock(g_windowBackgroundMutex);
+    if (g_windowBackgroundBgra.empty() || g_windowBackgroundWidth == 0 ||
+        g_windowBackgroundHeight == 0)
+        return;
+    BITMAPINFO info{};
+    info.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    info.bmiHeader.biWidth = static_cast<LONG>(g_windowBackgroundWidth);
+    info.bmiHeader.biHeight = -static_cast<LONG>(g_windowBackgroundHeight);
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    void *bits = nullptr;
+    HDC source = CreateCompatibleDC(target);
+    HBITMAP bitmap = CreateDIBSection(source, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!source || !bitmap || !bits) {
+        if (bitmap) DeleteObject(bitmap);
+        if (source) DeleteDC(source);
+        return;
+    }
+    memcpy(bits, g_windowBackgroundBgra.data(), g_windowBackgroundBgra.size());
+    HGDIOBJ oldBitmap = SelectObject(source, bitmap);
+    const float imageWidth = static_cast<float>(g_windowBackgroundWidth);
+    const float imageHeight = static_cast<float>(g_windowBackgroundHeight);
+    const unsigned fit = g_backgroundFit.load();
+    BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    auto paint = [&](int x, int y, int width, int height) {
+        AlphaBlend(target, x, y, width, height, source, 0, 0,
+                   static_cast<int>(g_windowBackgroundWidth),
+                   static_cast<int>(g_windowBackgroundHeight), blend);
+    };
+    if (fit == 2) {
+        paint(0, 0, targetWidth, targetHeight);
+    } else if (fit == 3) {
+        for (int y = 0; y < targetHeight; y += static_cast<int>(g_windowBackgroundHeight))
+            for (int x = 0; x < targetWidth; x += static_cast<int>(g_windowBackgroundWidth))
+                paint(x, y, static_cast<int>(g_windowBackgroundWidth),
+                      static_cast<int>(g_windowBackgroundHeight));
+    } else {
+        const float scaleX = static_cast<float>(targetWidth) / imageWidth;
+        const float scaleY = static_cast<float>(targetHeight) / imageHeight;
+        const float scale = fit == 1 ? std::max(scaleX, scaleY) : std::min(scaleX, scaleY);
+        const int width = std::max(1, static_cast<int>(std::round(imageWidth * scale)));
+        const int height = std::max(1, static_cast<int>(std::round(imageHeight * scale)));
+        paint((targetWidth - width) / 2, (targetHeight - height) / 2, width, height);
+    }
+    SelectObject(source, oldBitmap);
+    DeleteObject(bitmap);
+    DeleteDC(source);
+}
+
+void enterBorderlessFullscreen(HWND window)
+{
+    if (g_borderlessFullscreen)
+        return;
+
+    g_windowedPlacement.length = sizeof(g_windowedPlacement);
+    if (!GetWindowPlacement(window, &g_windowedPlacement))
+        return;
+
+    MONITORINFO monitorInfo{sizeof(monitorInfo)};
+    const HMONITOR monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+    if (!GetMonitorInfoW(monitor, &monitorInfo))
+        return;
+
+    g_windowedStyle = GetWindowLongPtrW(window, GWL_STYLE);
+    g_borderlessFullscreen = true;
+    SetWindowLongPtrW(window, GWL_STYLE,
+                      (g_windowedStyle & WS_VISIBLE) | WS_POPUP);
+    const RECT &bounds = monitorInfo.rcMonitor;
+    SetWindowPos(window, nullptr, bounds.left, bounds.top,
+                 bounds.right - bounds.left, bounds.bottom - bounds.top,
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER | SWP_FRAMECHANGED);
+}
+
+void exitBorderlessFullscreen(HWND window)
+{
+    if (!g_borderlessFullscreen)
+        return;
+
+    g_borderlessFullscreen = false;
+    SetWindowLongPtrW(window, GWL_STYLE, g_windowedStyle);
+    SetWindowPlacement(window, &g_windowedPlacement);
+    SetWindowPos(window, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER |
+                     SWP_NOZORDER | SWP_FRAMECHANGED);
+}
+
+void constrainWindowToOutputAspect(HWND window, WPARAM edge, RECT &bounds)
+{
+    const DWORD style = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_STYLE));
+    const DWORD extendedStyle = static_cast<DWORD>(GetWindowLongPtrW(window, GWL_EXSTYLE));
+    RECT frame{0, 0, static_cast<LONG>(kOutputWidth), static_cast<LONG>(kOutputHeight)};
+    AdjustWindowRectExForDpi(&frame, style, FALSE, extendedStyle, GetDpiForWindow(window));
+    const LONG frameWidth = (frame.right - frame.left) - static_cast<LONG>(kOutputWidth);
+    const LONG frameHeight = (frame.bottom - frame.top) - static_cast<LONG>(kOutputHeight);
+
+    LONG clientWidth = std::max<LONG>(1, bounds.right - bounds.left - frameWidth);
+    LONG clientHeight = std::max<LONG>(1, bounds.bottom - bounds.top - frameHeight);
+    const bool heightDriven = edge == WMSZ_TOP || edge == WMSZ_BOTTOM;
+    if (heightDriven)
+        clientWidth = std::max<LONG>(1, MulDiv(clientHeight, kOutputWidth, kOutputHeight));
+    else
+        clientHeight = std::max<LONG>(1, MulDiv(clientWidth, kOutputHeight, kOutputWidth));
+
+    const LONG outerWidth = clientWidth + frameWidth;
+    const LONG outerHeight = clientHeight + frameHeight;
+    if (edge == WMSZ_LEFT || edge == WMSZ_TOPLEFT || edge == WMSZ_BOTTOMLEFT)
+        bounds.left = bounds.right - outerWidth;
+    else
+        bounds.right = bounds.left + outerWidth;
+    if (edge == WMSZ_TOP || edge == WMSZ_TOPLEFT || edge == WMSZ_TOPRIGHT)
+        bounds.top = bounds.bottom - outerHeight;
+    else
+        bounds.bottom = bounds.top + outerHeight;
 }
 
 LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
@@ -1642,11 +1945,49 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         return 0;
     }
+    case WM_SIZING:
+        if (!g_borderlessFullscreen) {
+            constrainWindowToOutputAspect(window, wParam, *reinterpret_cast<RECT *>(lParam));
+            return TRUE;
+        }
+        return DefWindowProcW(window, message, wParam, lParam);
+    case WM_ERASEBKGND:
+        paintWindowBackground(window, reinterpret_cast<HDC>(wParam));
+        return 1;
+    case WM_SYSCOMMAND:
+        if ((wParam & 0xfff0) == SC_MAXIMIZE) {
+            enterBorderlessFullscreen(window);
+            return 0;
+        }
+        if (g_borderlessFullscreen && (wParam & 0xfff0) == SC_RESTORE) {
+            exitBorderlessFullscreen(window);
+            return 0;
+        }
+        return DefWindowProcW(window, message, wParam, lParam);
     case WM_LBUTTONUP:
         handlePointerRelease(window, static_cast<float>(GET_X_LPARAM(lParam)),
                              static_cast<float>(GET_Y_LPARAM(lParam)));
         return 0;
+    case WM_LBUTTONDBLCLK:
+        if (g_borderlessFullscreen &&
+            !pointIsOnRail(window, static_cast<float>(GET_X_LPARAM(lParam)),
+                           static_cast<float>(GET_Y_LPARAM(lParam)))) {
+            exitBorderlessFullscreen(window);
+            return 0;
+        }
+        return DefWindowProcW(window, message, wParam, lParam);
     case WM_KEYDOWN:
+        if (wParam == VK_ESCAPE && g_borderlessFullscreen) {
+            exitBorderlessFullscreen(window);
+            return 0;
+        }
+        if (wParam == VK_F11) {
+            if (g_borderlessFullscreen)
+                exitBorderlessFullscreen(window);
+            else
+                enterBorderlessFullscreen(window);
+            return 0;
+        }
         if (wParam == 'O' && (GetKeyState(VK_CONTROL) & 0x8000))
             openPngPicker();
         return 0;
@@ -1662,6 +2003,33 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsChooseReactionBlinkMessage:
         openPngPicker(reinterpret_cast<HWND>(lParam), ImageSlot::ReactionBlink);
         return 0;
+    case kAvatarSettingsChooseBackgroundImageMessage:
+        openPngPicker(reinterpret_cast<HWND>(lParam), ImageSlot::Background);
+        return 0;
+    case kAvatarSettingsRemoveBackgroundImageMessage: {
+        {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            g_backgroundImagePath.clear();
+            g_backgroundImageLoaded = false;
+        }
+        {
+            std::lock_guard<std::mutex> lock(g_windowBackgroundMutex);
+            g_windowBackgroundBgra.clear();
+            g_windowBackgroundWidth = 0;
+            g_windowBackgroundHeight = 0;
+        }
+        InvalidateRect(window, nullptr, TRUE);
+        saveSetting(L"BackgroundImage", L"");
+        PendingImage clear;
+        clear.slot = ImageSlot::Background;
+        clear.clearSlot = true;
+        {
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(clear));
+        }
+        sendBackgroundSettings();
+        return 0;
+    }
     case kAvatarSettingsUseDefaultPrimaryMessage:
     case kAvatarSettingsUseDefaultReactionMessage: {
         const bool reaction = message == kAvatarSettingsUseDefaultReactionMessage;
@@ -1732,7 +2100,50 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         sendMicrophoneState();
         sendBlinkSettings();
         sendBounceSettings();
+        sendBackgroundSettings();
+        sendAvatarTransformSettings();
         postAvatarSettingsMessage(L"reaction-preview-off");
+        return 0;
+    case kAvatarSettingsBackgroundModeMessage:
+        if (g_captureMethod.load() == 1) {
+            const unsigned mode = std::clamp<unsigned>(static_cast<unsigned>(wParam), 1, 3);
+            g_windowBackgroundMode.store(mode);
+            saveSetting(L"WindowBackgroundMode", std::to_wstring(mode));
+        } else {
+            const unsigned mode = static_cast<unsigned>(wParam) == 3 ? 3 : 0;
+            g_fixedBackgroundMode.store(mode);
+            saveSetting(L"FixedBackgroundMode", std::to_wstring(mode));
+        }
+        InvalidateRect(window, nullptr, TRUE);
+        return 0;
+    case kAvatarSettingsBackgroundSolidColourMessage:
+    case kAvatarSettingsBackgroundChromaColourMessage: {
+        std::unique_ptr<std::wstring> colour(reinterpret_cast<std::wstring *>(lParam));
+        const bool chroma = message == kAvatarSettingsBackgroundChromaColourMessage;
+        std::atomic<unsigned> &target = chroma ? g_backgroundChromaColour : g_backgroundSolidColour;
+        target.store(parseColour(colour ? *colour : L"", target.load()));
+        saveSetting(chroma ? L"BackgroundChromaColour" : L"BackgroundSolidColour",
+                    colourText(target.load()));
+        InvalidateRect(window, nullptr, TRUE);
+        return 0;
+    }
+    case kAvatarSettingsBackgroundFitMessage:
+        g_backgroundFit.store(std::min<unsigned>(static_cast<unsigned>(wParam), 3));
+        saveSetting(L"BackgroundFit", std::to_wstring(g_backgroundFit.load()));
+        InvalidateRect(window, nullptr, TRUE);
+        return 0;
+    case kAvatarSettingsCaptureMethodMessage:
+        g_captureMethod.store(std::min<unsigned>(static_cast<unsigned>(wParam), 1));
+        saveSetting(L"CaptureMethod", std::to_wstring(g_captureMethod.load()));
+        g_transformPending.store(true);
+        InvalidateRect(window, nullptr, TRUE);
+        sendBackgroundSettings();
+        return 0;
+    case kAvatarSettingsScaleMessage:
+        g_avatarScalePercent.store(
+            std::clamp<unsigned>(static_cast<unsigned>(wParam), 25, 250));
+        saveSetting(L"AvatarScalePercent", std::to_wstring(g_avatarScalePercent.load()));
+        sendAvatarTransformSettings();
         return 0;
     case kAvatarSettingsSelectMicrophoneMessage: {
         std::unique_ptr<std::wstring> selected(reinterpret_cast<std::wstring *>(lParam));
@@ -2021,7 +2432,10 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         postAvatarSettingsMessage(wParam != FALSE ? L"blink-state-on" : L"blink-state-off");
         return 0;
     case kImageUploadFailureMessage:
-        if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
+        if (static_cast<ImageSlot>(wParam) == ImageSlot::Background) {
+            sendBackgroundSettings();
+            postAvatarSettingsMessage(L"background-image-upload-error");
+        } else if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
             sendReactionImageState();
             postAvatarSettingsMessage(L"reaction-image-upload-error");
         } else if (static_cast<ImageSlot>(wParam) == ImageSlot::PrimaryBlink ||
@@ -2038,7 +2452,10 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     L"RearSilver Avatar Suite — PNG loading", MB_OK | MB_ICONERROR);
         return 0;
     case kImageUploadSuccessMessage:
-        if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
+        if (static_cast<ImageSlot>(wParam) == ImageSlot::Background) {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            setAvatarSettingsPreviewImage(4, g_backgroundImagePath);
+        } else if (static_cast<ImageSlot>(wParam) == ImageSlot::Reaction) {
             std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
             setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction), g_reactionImagePath);
         } else if (static_cast<ImageSlot>(wParam) == ImageSlot::PrimaryBlink) {
@@ -2185,19 +2602,25 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     windowClass.hInstance = instance;
     windowClass.lpfnWndProc = windowProcedure;
     windowClass.lpszClassName = kWindowClass;
+    windowClass.style = CS_DBLCLKS;
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     windowClass.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(IDI_REARSILVER_AVATAR_SUITE));
     windowClass.hIconSm = static_cast<HICON>(LoadImageW(instance,
         MAKEINTRESOURCEW(IDI_REARSILVER_AVATAR_SUITE), IMAGE_ICON,
         GetSystemMetrics(SM_CXSMICON), GetSystemMetrics(SM_CYSMICON), LR_DEFAULTCOLOR));
-    windowClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(WHITE_BRUSH));
+    windowClass.hbrBackground = nullptr;
     if (!RegisterClassExW(&windowClass)) {
         CoUninitialize();
         return 2;
     }
 
+    RECT initialBounds{0, 0, 960, 540};
+    AdjustWindowRectExForDpi(&initialBounds, WS_OVERLAPPEDWINDOW, FALSE, 0,
+                             GetDpiForSystem());
     g_mainWindow = CreateWindowExW(0, kWindowClass, kWindowTitle, WS_OVERLAPPEDWINDOW,
-                                   CW_USEDEFAULT, CW_USEDEFAULT, 980, 780, nullptr, nullptr,
+                                   CW_USEDEFAULT, CW_USEDEFAULT,
+                                   initialBounds.right - initialBounds.left,
+                                   initialBounds.bottom - initialBounds.top, nullptr, nullptr,
                                    instance, nullptr);
     if (!g_mainWindow) {
         CoUninitialize();
@@ -2309,6 +2732,52 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
                          g_primaryBlinkImagePath, g_primaryBlinkImageLoaded);
     queueSavedBlinkImage(L"ReactionBlinkImage", ImageSlot::ReactionBlink,
                          g_reactionBlinkImagePath, g_reactionBlinkImageLoaded);
+
+    const std::wstring savedBackgroundImage = loadSetting(L"BackgroundImage");
+    if (!savedBackgroundImage.empty()) {
+        {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            g_backgroundImagePath = savedBackgroundImage;
+            g_backgroundImageLoaded = false;
+        }
+        try {
+            PendingImage decoded;
+            if (!decodePng(savedBackgroundImage.c_str(), decoded))
+                throw E_INVALIDARG;
+            decoded.slot = ImageSlot::Background;
+            cacheWindowBackground(decoded);
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(decoded));
+            logMessage(L"Saved background image queued for startup restore: " + savedBackgroundImage);
+        } catch (...) {
+            logMessage(L"Saved background image is unavailable: " + savedBackgroundImage);
+        }
+    }
+
+    const std::wstring savedCaptureMethod = loadSetting(L"CaptureMethod");
+    if (!savedCaptureMethod.empty())
+        g_captureMethod.store(std::min<unsigned>(wcstoul(savedCaptureMethod.c_str(), nullptr, 10), 1));
+    const std::wstring savedWindowBackgroundMode = loadSetting(L"WindowBackgroundMode");
+    if (!savedWindowBackgroundMode.empty())
+        g_windowBackgroundMode.store(std::clamp<unsigned>(
+            wcstoul(savedWindowBackgroundMode.c_str(), nullptr, 10), 1, 3));
+    const std::wstring savedFixedBackgroundMode = loadSetting(L"FixedBackgroundMode");
+    if (!savedFixedBackgroundMode.empty())
+        g_fixedBackgroundMode.store(wcstoul(savedFixedBackgroundMode.c_str(), nullptr, 10) == 3 ? 3 : 0);
+    const std::wstring savedBackgroundSolid = loadSetting(L"BackgroundSolidColour");
+    if (!savedBackgroundSolid.empty())
+        g_backgroundSolidColour.store(parseColour(savedBackgroundSolid, 0xffffff));
+    const std::wstring savedBackgroundChroma = loadSetting(L"BackgroundChromaColour");
+    if (!savedBackgroundChroma.empty())
+        g_backgroundChromaColour.store(parseColour(savedBackgroundChroma, 0x00ff00));
+    const std::wstring savedBackgroundFit = loadSetting(L"BackgroundFit");
+    if (!savedBackgroundFit.empty())
+        g_backgroundFit.store(std::min<unsigned>(wcstoul(savedBackgroundFit.c_str(), nullptr, 10), 3));
+    const std::wstring savedAvatarScale = loadSetting(L"AvatarScalePercent");
+    if (!savedAvatarScale.empty())
+        g_avatarScalePercent.store(std::clamp<unsigned>(
+            wcstoul(savedAvatarScale.c_str(), nullptr, 10), 25, 250));
+    InvalidateRect(g_mainWindow, nullptr, TRUE);
 
     const std::wstring savedMicrophone = loadSetting(L"MicrophoneDevice");
     g_selectedMicrophoneId = savedMicrophone.empty() || savedMicrophone == L"@default"

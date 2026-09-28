@@ -34,6 +34,8 @@ button:hover{border-color:var(--cyan);background:#063847}
 button:disabled{cursor:not-allowed;opacity:.45}
 label{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}
 select{width:100%;border:1px solid var(--border);border-radius:9px;background:#1e2430;color:var(--text);font:600 13px Sora;padding:11px 12px}
+input[type=color]{width:72px;height:42px;padding:3px;border:1px solid var(--border);border-radius:9px;background:#1e2430;cursor:pointer}
+.colour-row{display:flex;align-items:center;gap:12px}.colour-value{font-weight:800;color:var(--muted);text-transform:uppercase}.preset-buttons{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.preset-buttons button{padding:8px 11px}
 .meter{height:18px;margin-top:16px;overflow:hidden;border:1px solid #344257;border-radius:999px;background:#0b0f14}
 .meter-fill{width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#047f91,var(--cyan));transition:width 70ms linear}
 .meter{position:relative}.threshold-marker{position:absolute;top:-2px;bottom:-2px;left:18%;width:2px;background:#fff;box-shadow:0 0 0 1px #0b0f14}
@@ -72,6 +74,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <button class="tab" data-page="microphone">Microphone</button>
     <button class="tab" data-page="blink">Blink</button>
     <button class="tab" data-page="effects">Effects</button>
+    <button class="tab" data-page="backgrounds">Backgrounds</button>
     <button class="tab" data-page="output">Output</button>
     <button class="tab" data-page="general">General</button>
   </nav>
@@ -95,6 +98,13 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
           <div class="file-state"><div class="file-name" id="reaction-file">RearSilver mascot reaction</div><div class="status" id="reaction-status">Using the bundled default.</div></div>
           <div class="setting-actions"><button id="default-reaction">Use default</button><button id="choose-reaction">Choose PNG…</button><button class="primary" id="preview-reaction" disabled>Preview reaction</button></div>
         </div>
+        </article>
+        <article class="card">
+          <h3>Avatar scale</h3>
+          <p>Change how much of the output canvas the avatar occupies. This applies to every image state and effect.</p>
+          <div class="range-heading"><span>Scale</span><strong id="avatar-scale-value">Just right — 100%</strong></div>
+          <input id="avatar-scale" type="range" min="25" max="250" step="1" value="100">
+          <div class="range-scale" data-range="avatar-scale"><button data-value="25">Pocket-sized</button><button data-value="75">Compact</button><button data-value="100">Just right</button><button data-value="175">Screen hog</button><button data-value="250">Absolute unit</button></div>
         </article>
       </div>
   </section>
@@ -174,7 +184,17 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     </div>
     <button class="primary add-effect" id="add-effect">+ Add effect</button>
   </section>
-  <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Output controls will be added in a later approved stage.</p></section>
+  <section class="panel page" data-page="backgrounds" hidden>
+    <h2>Backgrounds</h2>
+    <p class="intro">Choose what appears behind the avatar for the selected capture method.</p>
+    <div class="stack">
+      <article class="card"><h3>Background type</h3><p>Select transparent output, a colour, a chroma key, or a custom PNG.</p><label for="background-mode">Type</label><select id="background-mode"><option value="0">Transparent</option><option value="1">Solid colour</option><option value="2">Chroma key</option><option value="3">Background image</option></select><p class="status" id="background-mode-help">Transparent output is best suited to OBS Game Capture.</p></article>
+      <article class="card" id="background-solid-card" hidden><h3>Solid colour</h3><p>Fill the complete application background with one colour.</p><div class="colour-row"><input id="background-solid-colour" type="color" value="#ffffff"><span class="colour-value" id="background-solid-value">#FFFFFF</span></div></article>
+      <article class="card" id="background-chroma-card" hidden><h3>Chroma key colour</h3><p>Choose a colour that OBS can remove with its Chroma Key filter.</p><div class="colour-row"><input id="background-chroma-colour" type="color" value="#00ff00"><span class="colour-value" id="background-chroma-value">#00FF00</span></div><div class="preset-buttons"><button data-chroma="#00ff00">Green</button><button data-chroma="#0000ff">Blue</button><button data-chroma="#ff00ff">Magenta</button></div></article>
+      <article class="card" id="background-image-card" hidden><h3>Background image</h3><p>Choose a PNG to draw behind the avatar.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="background-image-file">No background image</div><div class="status" id="background-image-status">Choose a PNG to begin.</div></div><div class="setting-actions"><button id="remove-background-image">Remove image</button><button class="primary" id="choose-background-image">Choose PNG…</button></div></div><div class="control-grid"><div><label for="background-fit">Image fitting</label><select id="background-fit"><option value="0">Contain</option><option value="1">Cover</option><option value="2">Stretch</option><option value="3">Tile</option></select></div><div><label>Uncovered area</label><p class="status">Contain preserves the complete image and may leave neutral space when aspect ratios differ.</p></div></div></article>
+    </div>
+  </section>
+  <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Choose how you currently send Avatar Suite into OBS. This changes the relevant setup controls without altering the fixed Game Capture renderer.</p><div class="stack"><article class="card"><h3>Capture method</h3><label for="capture-method">Method</label><select id="capture-method"><option value="0">Game Capture — fixed transparent output</option><option value="1">Window Capture — visible application window</option><option value="2" disabled>Spout2 — coming soon</option></select><p class="status" id="capture-method-help">Game Capture receives the stable fixed-size renderer.</p></article><article class="card" id="window-capture-note" hidden><h3>Window Capture sizing</h3><p>OBS follows the application client size. The restored window remains 16:9; maximise it or press F11 for clean borderless fullscreen. Press F11, Escape, or double-click the renderer to restore it.</p></article></div></section>
   <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">General controls will be added in a later approved stage.</p></section>
   </div>
   <aside class="card preview-card">
@@ -187,11 +207,58 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 <div class="modal-backdrop" id="effect-modal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="effect-modal-title"><div class="modal-heading"><div><h2 id="effect-modal-title">Add effect</h2><p class="intro">Choose an effect to add to the current preset.</p></div><button id="close-effect-modal">Close</button></div><div class="effect-choice" data-choice="bounce"><div><h3>Reaction bounce</h3><p>Lift the avatar once whenever microphone input begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="breathing"><div><h3>Breathing</h3><p>Add continuous subtle expansion during idle, reaction, or both states.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="squash"><div><h3>Squash and stretch</h3><p>Add a bottom-anchored cartoon deformation whenever microphone reaction begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="shake"><div><h3>Shake</h3><p>Continuously rattle the avatar during microphone reaction and settle smoothly afterwards.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="brightness"><div><h3>Idle/Reaction brightness</h3><p>Dim the avatar while idle and brighten it smoothly for microphone reactions.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="float"><div><h3>Float</h3><p>Move continuously during idle, reaction, or both with optional horizontal drift.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="tilt"><div><h3>Tilt</h3><p>Lean for the microphone reaction and return smoothly when it ends.</p></div><button class="primary">Add</button></div></div></div>
 <script>
 document.getElementById('close').onclick=()=>window.chrome.webview.postMessage('close-settings');
-document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>{
+function showPage(name){
+  const tab=document.querySelector(`.tab[data-page="${name}"]`);
+  if(!tab)return;
   document.querySelectorAll('.tab').forEach(item=>item.classList.remove('active'));
   tab.classList.add('active');
-  document.querySelectorAll('.page').forEach(page=>page.hidden=page.dataset.page!==tab.dataset.page);
-});
+  document.querySelectorAll('.page').forEach(page=>page.hidden=page.dataset.page!==name);
+}
+document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>showPage(tab.dataset.page));
+const backgroundMode=document.getElementById('background-mode');
+const captureMethod=document.getElementById('capture-method');
+const backgroundSolidColour=document.getElementById('background-solid-colour');
+const backgroundChromaColour=document.getElementById('background-chroma-colour');
+const backgroundFit=document.getElementById('background-fit');
+function updateBackgroundUi(){
+  const mode=Number(backgroundMode.value);
+  document.getElementById('background-solid-card').hidden=mode!==1;
+  document.getElementById('background-chroma-card').hidden=mode!==2;
+  document.getElementById('background-image-card').hidden=mode!==3;
+  document.getElementById('background-mode-help').textContent=[
+    'Transparent output is best suited to OBS Game Capture.',
+    'The selected colour fills the complete output canvas.',
+    'Add an OBS Chroma Key filter using the selected colour.',
+    'The selected PNG is rendered behind the avatar.'
+  ][mode]||'';
+}
+function configureBackgroundChoices(){
+  const windowCapture=captureMethod.value==='1';
+  const current=backgroundMode.value;
+  backgroundMode.replaceChildren();
+  const choices=windowCapture
+    ? [['1','Solid colour'],['2','Chroma key'],['3','Background image']]
+    : [['0','Transparent'],['3','Background image']];
+  choices.forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;backgroundMode.append(option)});
+  backgroundMode.value=choices.some(([value])=>value===current)?current:choices[0][0];
+  document.getElementById('window-capture-note').hidden=!windowCapture;
+  document.getElementById('capture-method-help').textContent=windowCapture
+    ? 'Window Capture receives the complete visible application client area.'
+    : 'Game Capture receives the stable fixed-size renderer.';
+  updateBackgroundUi();
+}
+function updateBackgroundColour(input,value){
+  document.getElementById(value).textContent=input.value.toUpperCase();
+}
+backgroundMode.onchange=()=>{updateBackgroundUi();window.chrome.webview.postMessage(`background-mode\t${backgroundMode.value}`)};
+captureMethod.onchange=()=>{configureBackgroundChoices();window.chrome.webview.postMessage(`capture-method\t${captureMethod.value}`)};
+backgroundSolidColour.oninput=()=>{updateBackgroundColour(backgroundSolidColour,'background-solid-value');window.chrome.webview.postMessage(`background-solid-colour\t${backgroundSolidColour.value}`)};
+backgroundChromaColour.oninput=()=>{updateBackgroundColour(backgroundChromaColour,'background-chroma-value');window.chrome.webview.postMessage(`background-chroma-colour\t${backgroundChromaColour.value}`)};
+document.querySelectorAll('[data-chroma]').forEach(button=>button.onclick=()=>{backgroundChromaColour.value=button.dataset.chroma;updateBackgroundColour(backgroundChromaColour,'background-chroma-value');window.chrome.webview.postMessage(`background-chroma-colour\t${backgroundChromaColour.value}`)});
+backgroundFit.onchange=()=>window.chrome.webview.postMessage(`background-fit\t${backgroundFit.value}`);
+document.getElementById('choose-background-image').onclick=()=>{document.getElementById('background-image-status').textContent='Waiting for a PNG selection…';window.chrome.webview.postMessage('choose-background-image')};
+document.getElementById('remove-background-image').onclick=()=>window.chrome.webview.postMessage('remove-background-image');
+configureBackgroundChoices();
 document.getElementById('choose-avatar').onclick=()=>{
   document.getElementById('avatar-status').textContent='Waiting for a PNG selection…';
   window.chrome.webview.postMessage('choose-avatar-png');
@@ -206,6 +273,7 @@ let primaryBlinkPreviewUrl='';
 let reactionBlinkPreviewUrl='';
 let blinking=false;
 let displayedPreviewUrl='';
+let avatarScale=100;
 let bounceEnabled=true;
 let bounceHeight=40;
 let bounceDuration=350;
@@ -293,6 +361,16 @@ document.getElementById('choose-reaction').onclick=()=>{
   window.chrome.webview.postMessage('choose-reaction-png');
 };
 document.getElementById('default-reaction').onclick=()=>window.chrome.webview.postMessage('use-default-reaction');
+const avatarScaleControl=document.getElementById('avatar-scale');
+function avatarScaleLabel(value){
+  return value<50?'Pocket-sized':value<90?'Compact':value<130?'Just right':value<215?'Screen hog':'Absolute unit';
+}
+function updateAvatarScaleUi(){
+  avatarScale=Number(avatarScaleControl.value);
+  document.getElementById('avatar-scale-value').textContent=`${avatarScaleLabel(avatarScale)} — ${avatarScale}%`;
+}
+avatarScaleControl.oninput=updateAvatarScaleUi;
+avatarScaleControl.onchange=()=>window.chrome.webview.postMessage(`avatar-scale\t${avatarScaleControl.value}`);
 previewReaction.onclick=()=>{
   if(!reactionAvailable)return;
   manualReactionPreview=!manualReactionPreview;
@@ -769,7 +847,33 @@ window.chrome.webview.addEventListener('message',event=>{
   const message=String(event.data||'');
   const [type,value='']=message.split('\t',2);
   const status=document.getElementById('avatar-status');
-  if(type==='avatar-image-selected'){
+  if(type==='navigate-page'){
+    showPage(value);
+  }else if(type==='capture-method'){
+    captureMethod.value=value;configureBackgroundChoices();
+  }else if(type==='background-mode'){
+    backgroundMode.value=value;updateBackgroundUi();
+  }else if(type==='background-solid-colour'){
+    backgroundSolidColour.value=value;updateBackgroundColour(backgroundSolidColour,'background-solid-value');
+  }else if(type==='background-chroma-colour'){
+    backgroundChromaColour.value=value;updateBackgroundColour(backgroundChromaColour,'background-chroma-value');
+  }else if(type==='background-fit'){
+    backgroundFit.value=value;
+  }else if(type==='background-image-selected'){
+    document.getElementById('background-image-file').textContent=value;document.getElementById('background-image-status').textContent='Preparing the image for the renderer…';
+  }else if(type==='background-image-current'){
+    document.getElementById('background-image-file').textContent=value;document.getElementById('background-image-status').textContent='Loaded from your saved settings.';
+  }else if(type==='background-image-empty'){
+    document.getElementById('background-image-file').textContent='No background image';document.getElementById('background-image-status').textContent='Choose a PNG to begin.';
+  }else if(type==='background-image-unavailable'){
+    document.getElementById('background-image-file').textContent=value||'Saved image unavailable';document.getElementById('background-image-status').textContent='The saved file could not be loaded.';
+  }else if(type==='background-image-uploaded'){
+    document.getElementById('background-image-status').textContent='Loaded into the renderer.';
+  }else if(type==='background-image-cancelled'){
+    document.getElementById('background-image-status').textContent='Selection cancelled; current image unchanged.';
+  }else if(type==='background-image-error'||type==='background-image-upload-error'){
+    document.getElementById('background-image-status').textContent='Could not load this image; current image unchanged.';
+  }else if(type==='avatar-image-selected'){
     document.getElementById('avatar-file').textContent=value;
     status.textContent='Preparing the image for the renderer…';
   }else if(type==='avatar-image-uploaded'){
@@ -916,6 +1020,10 @@ window.chrome.webview.addEventListener('message',event=>{
     blinking=false;
   }else if(type==='blink-enabled'){
     blinkEnabled.checked=value==='1';
+  }else if(type==='avatar-scale'){
+    avatarScale=Number(value);
+    avatarScaleControl.value=value;
+    updateAvatarScaleUi();
   }else if(type==='blink-minimum'){
     blinkMinimum.value=value;
     updateBlinkUi();
