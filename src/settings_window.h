@@ -70,6 +70,7 @@ constexpr UINT kAvatarSettingsUpdatePresetMessage = WM_APP + 77;
 constexpr UINT kAvatarSettingsRevertPresetMessage = WM_APP + 78;
 constexpr UINT kAvatarSettingsAddLayerMessage = WM_APP + 79;
 constexpr UINT kAvatarSettingsLayerCommandMessage = WM_APP + 80;
+constexpr UINT kAvatarSettingsPresetCommandMessage = WM_APP + 81;
 
 bool showAvatarSettingsWindow(HWND owner, const std::wstring &page = L"");
 bool isAvatarSettingsWindowVisible();

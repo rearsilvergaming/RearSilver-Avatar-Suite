@@ -22,6 +22,7 @@ ComPtr<ICoreWebView2Controller> g_controller;
 ComPtr<ICoreWebView2> g_webView;
 bool g_initialising = false;
 bool g_webViewReady = false;
+bool g_settingsWasMaximised = false;
 std::atomic<bool> g_settingsVisible{false};
 std::wstring g_pendingPage;
 std::wstring g_lastSettingsPage = L"avatar";
@@ -184,6 +185,8 @@ void resizeWebView()
 
 void hideSettingsWindow()
 {
+    if (g_settingsWindow)
+        g_settingsWasMaximised = IsZoomed(g_settingsWindow) != FALSE;
     g_settingsVisible.store(false);
     if (g_ownerWindow && IsWindow(g_ownerWindow))
         PostMessageW(g_ownerWindow, kAvatarSettingsPreviewReactionMessage, FALSE, 0);
@@ -289,6 +292,10 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsLayerCommandMessage, 1,
                                                              reinterpret_cast<LPARAM>(new std::wstring(message + 14)));
+                                            else if (wcsncmp(message, L"preset-command\t", 15) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsPresetCommandMessage, 0,
+                                                             reinterpret_cast<LPARAM>(new std::wstring(message + 15)));
                                             else if (wcscmp(message, L"choose-avatar-png") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChoosePngMessage,
@@ -568,7 +575,10 @@ LRESULT CALLBACK settingsWindowProcedure(HWND window, UINT message, WPARAM wPara
 {
     switch (message) {
     case WM_CREATE: initialiseWebView(); return 0;
-    case WM_SIZE: resizeWebView(); return 0;
+    case WM_SIZE:
+        if (wParam == SIZE_MAXIMIZED) g_settingsWasMaximised = true;
+        else if (wParam == SIZE_RESTORED) g_settingsWasMaximised = false;
+        resizeWebView(); return 0;
     case WM_CLOSE: hideSettingsWindow(); return 0;
     case WM_DESTROY: g_settingsWindow = nullptr; return 0;
     default: return DefWindowProcW(window, message, wParam, lParam);
@@ -603,7 +613,7 @@ bool showAvatarSettingsWindow(HWND owner, const std::wstring &page)
         if (!g_settingsWindow)
             return false;
     }
-    ShowWindow(g_settingsWindow, SW_SHOW);
+    ShowWindow(g_settingsWindow, g_settingsWasMaximised ? SW_SHOWMAXIMIZED : SW_SHOW);
     g_settingsVisible.store(true);
     SetForegroundWindow(g_settingsWindow);
     if (g_controller)

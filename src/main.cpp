@@ -49,6 +49,7 @@ constexpr UINT kOutputUiDpi = 192;
 
 HWND g_mainWindow = nullptr;
 std::atomic<bool> g_running{false};
+std::atomic<unsigned long long> g_presetGeneration{1};
 std::atomic<bool> g_applicationActive{true};
 std::atomic<bool> g_dialogOpen{false};
 std::atomic<bool> g_reactionsEnabled{true};
@@ -87,6 +88,8 @@ struct PendingImage {
     ImageSlot slot = ImageSlot::Primary;
     bool persistSelection = true;
     bool clearSlot = false;
+    unsigned long long presetGeneration = 0;
+    std::wstring displayName;
     std::wstring layerId;
 };
 
@@ -326,6 +329,17 @@ std::wstring fileNameFromPath(const std::wstring &path)
     return separator == std::wstring::npos ? path : path.substr(separator + 1);
 }
 
+std::wstring imageDisplayName(const wchar_t *key, const std::wstring &path)
+{
+    const std::wstring saved = loadSetting(key);
+    if (!saved.empty()) return saved;
+    const std::wstring fileName = fileNameFromPath(path);
+    const size_t dot = fileName.rfind(L".png");
+    if (dot == 64 && fileName.substr(0, dot).find_first_not_of(L"0123456789abcdef") == std::wstring::npos)
+        return L"Imported PNG";
+    return fileName;
+}
+
 std::wstring executableDirectory()
 {
     wchar_t path[MAX_PATH]{};
@@ -344,7 +358,7 @@ void sendPrimaryImageState()
         postAvatarSettingsMessage(L"avatar-image-default");
     } else if (g_primaryImageLoaded) {
         setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Primary), g_primaryImagePath);
-        postAvatarSettingsMessage(L"avatar-image-current\t" + fileNameFromPath(g_primaryImagePath));
+        postAvatarSettingsMessage(L"avatar-image-current\t" + imageDisplayName(L"PrimaryImageDisplayName", g_primaryImagePath));
     } else {
         setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Primary),
                                       g_defaultPrimaryImagePath);
@@ -361,7 +375,7 @@ void sendReactionImageState()
         postAvatarSettingsMessage(L"reaction-image-default");
     } else if (g_reactionImageLoaded) {
         setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction), g_reactionImagePath);
-        postAvatarSettingsMessage(L"reaction-image-current\t" + fileNameFromPath(g_reactionImagePath));
+        postAvatarSettingsMessage(L"reaction-image-current\t" + imageDisplayName(L"ReactionImageDisplayName", g_reactionImagePath));
     } else {
         setAvatarSettingsPreviewImage(static_cast<unsigned>(ImageSlot::Reaction),
                                       g_defaultReactionImagePath);
@@ -380,7 +394,9 @@ void sendBlinkImageState(ImageSlot slot)
         postAvatarSettingsMessage(std::wstring(prefix) + L"-empty");
     } else if (loaded) {
         setAvatarSettingsPreviewImage(static_cast<unsigned>(slot), path);
-        postAvatarSettingsMessage(std::wstring(prefix) + L"-current\t" + fileNameFromPath(path));
+        postAvatarSettingsMessage(std::wstring(prefix) + L"-current\t" +
+                                  imageDisplayName(reaction ? L"ReactionBlinkImageDisplayName" :
+                                                              L"PrimaryBlinkImageDisplayName", path));
     } else {
         postAvatarSettingsMessage(std::wstring(prefix) + L"-unavailable\t" + fileNameFromPath(path));
     }
@@ -444,10 +460,10 @@ void sendBackgroundSettings()
         postAvatarSettingsMessage(L"background-image-empty");
     else if (g_backgroundImageLoaded)
         postAvatarSettingsMessage(L"background-image-current\t" +
-                                  fileNameFromPath(g_backgroundImagePath));
+                                  imageDisplayName(L"BackgroundImageDisplayName", g_backgroundImagePath));
     else
         postAvatarSettingsMessage(L"background-image-unavailable\t" +
-                                  fileNameFromPath(g_backgroundImagePath));
+                                  imageDisplayName(L"BackgroundImageDisplayName", g_backgroundImagePath));
 }
 
 void sendAvatarTransformSettings()
@@ -803,7 +819,7 @@ ComPtr<IDXGIAdapter1> chooseInteroperableAdapter()
     return candidates[choice].adapter;
 }
 
-bool decodePng(const wchar_t *path, PendingImage &decoded)
+bool decodePng(const wchar_t *path, PendingImage &decoded, UINT bundledTextureLimit = 0)
 {
     ComPtr<IWICImagingFactory> factory;
     check(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
@@ -816,12 +832,26 @@ bool decodePng(const wchar_t *path, PendingImage &decoded)
     UINT width = 0;
     UINT height = 0;
     check(frame->GetSize(&width, &height));
-    if (width == 0 || height == 0 || width > 8192 || height > 8192)
+    if (width == 0 || height == 0 ||
+        (!bundledTextureLimit && (width > 8192 || height > 8192)))
         return false;
+
+    ComPtr<IWICBitmapSource> source;
+    check(frame.As(&source));
+    if (bundledTextureLimit && (width > bundledTextureLimit || height > bundledTextureLimit)) {
+        const double scale = std::min(static_cast<double>(bundledTextureLimit) / width,
+                                      static_cast<double>(bundledTextureLimit) / height);
+        width = std::max<UINT>(1, static_cast<UINT>(std::round(width * scale)));
+        height = std::max<UINT>(1, static_cast<UINT>(std::round(height * scale)));
+        ComPtr<IWICBitmapScaler> scaler;
+        check(factory->CreateBitmapScaler(&scaler));
+        check(scaler->Initialize(frame.Get(), width, height, WICBitmapInterpolationModeFant));
+        source = scaler;
+    }
 
     ComPtr<IWICFormatConverter> converter;
     check(factory->CreateFormatConverter(&converter));
-    check(converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppRGBA,
+    check(converter->Initialize(source.Get(), GUID_WICPixelFormat32bppRGBA,
                                 WICBitmapDitherTypeNone, nullptr, 0,
                                 WICBitmapPaletteTypeCustom));
     decoded.rgba.resize(static_cast<size_t>(width) * height * 4);
@@ -900,7 +930,8 @@ void applyPresetDraftToRuntime()
         }
         try {
             PendingImage decoded;
-            if (!decodePng(source.c_str(), decoded)) throw E_INVALIDARG;
+            const UINT bundledLimit = source == fallback && !fallback.empty() ? 4096 : 0;
+            if (!decodePng(source.c_str(), decoded, bundledLimit)) throw E_INVALIDARG;
             decoded.slot = slot;
             decoded.persistSelection = false;
             if (slot == ImageSlot::Background) cacheWindowBackground(decoded);
@@ -910,7 +941,7 @@ void applyPresetDraftToRuntime()
             if (!fallback.empty() && source != fallback) {
                 try {
                     PendingImage decoded;
-                    if (!decodePng(fallback.c_str(), decoded)) throw E_INVALIDARG;
+                    if (!decodePng(fallback.c_str(), decoded, 4096)) throw E_INVALIDARG;
                     decoded.slot = slot;
                     decoded.persistSelection = false;
                     std::lock_guard<std::mutex> lock(g_pendingImageMutex);
@@ -1027,6 +1058,8 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
             if (!managedPath.empty())
                 decoded.path = managedPath;
             decoded.slot = slot;
+            decoded.presetGeneration = g_presetGeneration.load();
+            decoded.displayName = fileNameFromPath(path);
             if (slot == ImageSlot::Background)
                 cacheWindowBackground(decoded);
             {
@@ -1072,6 +1105,133 @@ void sendLayerState()
                                   std::to_wstring(layer.tailWagPivot));
     }
     postAvatarSettingsMessage(L"layer-list-complete");
+}
+
+void sendPresetState()
+{
+    postAvatarSettingsMessage(L"preset-state\t" + preset_store::activePresetId() + L"\t" +
+                              preset_store::activePresetName() + L"\t" +
+                              (preset_store::hasUnsavedChanges() ? L"1" : L"0"));
+    const auto presets = preset_store::listPresets();
+    postAvatarSettingsMessage(L"preset-list-reset\t" + std::to_wstring(presets.size()));
+    for (const auto &preset : presets)
+        postAvatarSettingsMessage(L"preset-item\t" + preset.id + L"\t" + preset.name + L"\t" +
+                                  (preset.active ? L"1" : L"0") + L"\t" +
+                                  (preset.dirty ? L"1" : L"0"));
+    postAvatarSettingsMessage(L"preset-list-complete");
+}
+
+std::vector<std::wstring> splitPresetCommand(const std::wstring &command)
+{
+    std::vector<std::wstring> fields;
+    size_t start = 0;
+    while (start <= command.size()) {
+        const size_t end = command.find(L'\t', start);
+        fields.push_back(command.substr(start, end == std::wstring::npos ? end : end - start));
+        if (end == std::wstring::npos) break;
+        start = end + 1;
+    }
+    return fields;
+}
+
+bool resolveDirtyPresetSwitch(const std::wstring &disposition)
+{
+    if (!preset_store::hasUnsavedChanges()) return true;
+    if (disposition == L"update") return preset_store::updateActivePreset();
+    if (disposition == L"discard") return preset_store::revertActivePreset();
+    return false;
+}
+
+void exportPresetWithPicker(const std::wstring &id)
+{
+    std::wstring name = L"Avatar preset";
+    for (const auto &preset : preset_store::listPresets()) if (preset.id == id) name = preset.name;
+    for (wchar_t &character : name)
+        if (wcschr(L"<>:\"/\\|?*", character)) character = L'_';
+    wchar_t path[32768]{};
+    wcsncpy_s(path, (name + L".rasavatar").c_str(), _TRUNCATE);
+    OPENFILENAMEW picker{}; picker.lStructSize = sizeof(picker); picker.hwndOwner = g_mainWindow;
+    picker.lpstrFilter = L"RearSilver Avatar preset\0*.rasavatar\0All files\0*.*\0";
+    picker.lpstrFile = path; picker.nMaxFile = static_cast<DWORD>(std::size(path));
+    picker.lpstrDefExt = L"rasavatar"; picker.Flags = OFN_OVERWRITEPROMPT | OFN_NOCHANGEDIR;
+    g_dialogOpen.store(true);
+    if (GetSaveFileNameW(&picker) && !preset_store::exportPreset(id, path))
+        MessageBoxW(g_mainWindow, L"The preset could not be exported.",
+                    L"RearSilver Avatar Suite — Presets", MB_OK | MB_ICONERROR);
+    g_dialogOpen.store(false);
+}
+
+bool importPresetWithPicker()
+{
+    wchar_t path[32768]{};
+    OPENFILENAMEW picker{}; picker.lStructSize = sizeof(picker); picker.hwndOwner = g_mainWindow;
+    picker.lpstrFilter = L"RearSilver Avatar preset\0*.rasavatar\0All files\0*.*\0";
+    picker.lpstrFile = path; picker.nMaxFile = static_cast<DWORD>(std::size(path));
+    picker.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    g_dialogOpen.store(true);
+    bool imported = false;
+    if (GetOpenFileNameW(&picker)) {
+        std::wstring created;
+        if (preset_store::importPreset(path, created)) {
+            g_presetGeneration.fetch_add(1);
+            imported = preset_store::selectPreset(created);
+        } else {
+            MessageBoxW(g_mainWindow, L"This preset package is invalid or could not be imported.",
+                        L"RearSilver Avatar Suite — Presets", MB_OK | MB_ICONERROR);
+        }
+    }
+    g_dialogOpen.store(false);
+    return imported;
+}
+
+void handlePresetCommand(const std::wstring &command)
+{
+    const auto fields = splitPresetCommand(command);
+    if (fields.empty()) return;
+    bool reload = false;
+    if (fields[0] == L"select" && fields.size() >= 2) {
+        if (fields[1] == preset_store::activePresetId()) return;
+        const std::wstring disposition = fields.size() >= 3 ? fields[2] : L"";
+        if (!resolveDirtyPresetSwitch(disposition)) {
+            postAvatarSettingsMessage(L"preset-switch-required\tselect\t" + fields[1]);
+            return;
+        }
+        g_presetGeneration.fetch_add(1);
+        reload = preset_store::selectPreset(fields[1]);
+    } else if ((fields[0] == L"create" || fields[0] == L"duplicate") && fields.size() >= 2) {
+        const std::wstring disposition = fields.size() >= 4 ? fields[3] : L"";
+        if (!resolveDirtyPresetSwitch(disposition)) {
+            postAvatarSettingsMessage(L"preset-switch-required\t" + fields[0] + L"\t" + fields[1] +
+                                      L"\t" + (fields.size() >= 3 ? fields[2] : L""));
+            return;
+        }
+        std::wstring created;
+        const std::wstring source = fields[0] == L"duplicate" && fields.size() >= 3 ? fields[2] : L"";
+        if (preset_store::createPreset(fields[1], source, created)) {
+            g_presetGeneration.fetch_add(1);
+            reload = preset_store::selectPreset(created);
+        }
+    } else if (fields[0] == L"rename" && fields.size() >= 3) {
+        preset_store::renamePreset(fields[1], fields[2]);
+    } else if (fields[0] == L"delete" && fields.size() >= 2) {
+        const bool wasActive = fields[1] == preset_store::activePresetId();
+        if (wasActive) g_presetGeneration.fetch_add(1);
+        if (preset_store::deletePreset(fields[1])) reload = wasActive;
+    } else if (fields[0] == L"export" && fields.size() >= 2) {
+        exportPresetWithPicker(fields[1]);
+    } else if (fields[0] == L"import") {
+        const std::wstring disposition = fields.size() >= 2 ? fields[1] : L"";
+        if (!resolveDirtyPresetSwitch(disposition)) {
+            postAvatarSettingsMessage(L"preset-switch-required\timport");
+            return;
+        }
+        reload = importPresetWithPicker();
+    }
+    if (reload) {
+        applyPresetDraftToRuntime();
+        sendLayerState();
+    }
+    sendPresetState();
 }
 
 void addLayerFromPicker(HWND owner)
@@ -1323,8 +1483,10 @@ public:
                     g_backgroundImagePath = pending.path;
                     g_backgroundImageLoaded = true;
                 }
-                if (pending.persistSelection)
+                if (pending.persistSelection && pending.presetGeneration == g_presetGeneration.load()) {
                     saveSetting(L"BackgroundImage", pending.path);
+                    saveSetting(L"BackgroundImageDisplayName", pending.displayName);
+                }
             } else if (pending.slot == ImageSlot::Reaction) {
                 reactionAvatar_ = std::move(replacement);
                 reactionAvatarLoaded_ = true;
@@ -1333,10 +1495,11 @@ public:
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_reactionImageLoaded = true;
                 }
-                if (pending.persistSelection) {
+                if (pending.persistSelection && pending.presetGeneration == g_presetGeneration.load()) {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_reactionImagePath = pending.path;
                     saveSetting(L"ReactionImage", pending.path);
+                    saveSetting(L"ReactionImageDisplayName", pending.displayName);
                 }
             } else if (pending.slot == ImageSlot::PrimaryBlink) {
                 primaryBlinkAvatar_ = std::move(replacement);
@@ -1346,8 +1509,10 @@ public:
                     g_primaryBlinkImagePath = pending.path;
                     g_primaryBlinkImageLoaded = true;
                 }
-                if (pending.persistSelection)
+                if (pending.persistSelection && pending.presetGeneration == g_presetGeneration.load()) {
                     saveSetting(L"PrimaryBlinkImage", pending.path);
+                    saveSetting(L"PrimaryBlinkImageDisplayName", pending.displayName);
+                }
             } else if (pending.slot == ImageSlot::ReactionBlink) {
                 reactionBlinkAvatar_ = std::move(replacement);
                 reactionBlinkAvatarLoaded_ = true;
@@ -1356,22 +1521,25 @@ public:
                     g_reactionBlinkImagePath = pending.path;
                     g_reactionBlinkImageLoaded = true;
                 }
-                if (pending.persistSelection)
+                if (pending.persistSelection && pending.presetGeneration == g_presetGeneration.load()) {
                     saveSetting(L"ReactionBlinkImage", pending.path);
+                    saveSetting(L"ReactionBlinkImageDisplayName", pending.displayName);
+                }
             } else {
                 primaryAvatar_ = std::move(replacement);
                 {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_primaryImageLoaded = true;
                 }
-                if (pending.persistSelection) {
+                if (pending.persistSelection && pending.presetGeneration == g_presetGeneration.load()) {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_primaryImagePath = pending.path;
                     saveSetting(L"PrimaryImage", pending.path);
+                    saveSetting(L"PrimaryImageDisplayName", pending.displayName);
                 }
             }
             logMessage(L"Image atomically replaced after GPU upload: " + pending.path);
-            if (pending.persistSelection)
+            if (pending.persistSelection && pending.presetGeneration == g_presetGeneration.load())
                 PostMessageW(window_, kImageUploadSuccessMessage, static_cast<WPARAM>(pending.slot), 0);
         } catch (...) {
             PostMessageW(window_, kImageUploadFailureMessage, static_cast<WPARAM>(pending.slot), 0);
@@ -1478,6 +1646,11 @@ public:
                             static_cast<float>(g_avatarScalePercent.load()) / 100.0f;
         float avatarWidth = activeAvatar->width * scale;
         float avatarHeight = activeAvatar->height * scale;
+        const float baseAvatarWidth = avatarWidth;
+        const float baseAvatarHeight = avatarHeight;
+        const float primaryScale = std::min(maxWidth / primaryAvatar_.width,
+                                            maxHeight / primaryAvatar_.height) *
+                                   static_cast<float>(g_avatarScalePercent.load()) / 100.0f;
         const float baseBottom = (static_cast<float>(height_) + avatarHeight) * 0.5f;
         float targetBreathAmount = 0.0f;
         if (g_breathingAdded.load() && g_breathingEnabled.load()) {
@@ -1685,8 +1858,12 @@ public:
                 if (found == layerImages_.end()) continue;
                 const float localX = static_cast<float>(layer.scaleX) / 100.0f;
                 const float localY = static_cast<float>(layer.scaleY) / 100.0f;
-                const float rootX = layer.inheritAvatarEffects ? avatarWidth / activeAvatar->width : scale;
-                const float rootY = layer.inheritAvatarEffects ? avatarHeight / activeAvatar->height : scale;
+                const float effectScaleX = layer.inheritAvatarEffects && baseAvatarWidth > 0.0f
+                                               ? avatarWidth / baseAvatarWidth : 1.0f;
+                const float effectScaleY = layer.inheritAvatarEffects && baseAvatarHeight > 0.0f
+                                               ? avatarHeight / baseAvatarHeight : 1.0f;
+                const float rootX = primaryScale * effectScaleX;
+                const float rootY = primaryScale * effectScaleY;
                 const float layerWidth = found->texture.width * rootX * localX;
                 const float layerHeight = found->texture.height * rootY * localY;
                 const float motionX = layer.inheritAvatarEffects ? floatX + shakeX : 0.0f;
@@ -2102,7 +2279,6 @@ private:
     {
         const UiLayout ui = calculateUiLayout(width_, height_, kOutputUiDpi);
         drawRect(presetsIcon_, ui.presets);
-        drawRect(disabledOverlay_, ui.presets);
         drawRect(g_reactionsEnabled.load() ? reactionsOnIcon_ : reactionsOffIcon_, ui.reactions);
         drawRect(websocketIcon_, ui.websocket);
         drawRect(disabledOverlay_, ui.websocket);
@@ -2233,6 +2409,10 @@ void handlePointerRelease(HWND window, float x, float y)
         saveSetting(L"ReactionsEnabled", enabled ? L"1" : L"0");
         if (!enabled)
             setMicrophoneReaction(false);
+        return;
+    }
+    if (ui.presets.contains(outputX, outputY)) {
+        showAvatarSettingsWindow(window, L"presets");
         return;
     }
     if (ui.backgrounds.contains(outputX, outputY)) {
@@ -2508,6 +2688,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         InvalidateRect(window, nullptr, TRUE);
         saveSetting(L"BackgroundImage", L"");
+        saveSetting(L"BackgroundImageDisplayName", L"");
         PendingImage clear;
         clear.slot = ImageSlot::Background;
         clear.clearSlot = true;
@@ -2525,7 +2706,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         const std::wstring &defaultPath = reaction ? g_defaultReactionImagePath : g_defaultPrimaryImagePath;
         try {
             PendingImage decoded;
-            if (!decodePng(defaultPath.c_str(), decoded))
+            if (!decodePng(defaultPath.c_str(), decoded, 4096))
                 throw E_INVALIDARG;
             decoded.slot = slot;
             decoded.persistSelection = false;
@@ -2540,6 +2721,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                 }
             }
             saveSetting(reaction ? L"ReactionImage" : L"PrimaryImage", L"");
+            saveSetting(reaction ? L"ReactionImageDisplayName" : L"PrimaryImageDisplayName", L"");
             {
                 std::lock_guard<std::mutex> lock(g_pendingImageMutex);
                 g_pendingImages.push_back(std::move(decoded));
@@ -2566,6 +2748,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             loaded = false;
         }
         saveSetting(reaction ? L"ReactionBlinkImage" : L"PrimaryBlinkImage", L"");
+        saveSetting(reaction ? L"ReactionBlinkImageDisplayName" : L"PrimaryBlinkImageDisplayName", L"");
         PendingImage clear;
         clear.slot = slot;
         clear.clearSlot = true;
@@ -2581,8 +2764,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         postAvatarSettingsMessage(wParam != FALSE ? L"reaction-preview-on" : L"reaction-preview-off");
         return 0;
     case kAvatarSettingsReadyMessage:
-        postAvatarSettingsMessage(L"preset-state\t" + preset_store::activePresetName() + L"\t" +
-                                  (preset_store::hasUnsavedChanges() ? L"1" : L"0"));
+        sendPresetState();
         sendPrimaryImageState();
         sendReactionImageState();
         sendBlinkImageState(ImageSlot::PrimaryBlink);
@@ -2597,14 +2779,13 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         postAvatarSettingsMessage(L"reaction-preview-off");
         return 0;
     case kAvatarSettingsUpdatePresetMessage:
-        if (preset_store::updateActivePreset())
-            postAvatarSettingsMessage(L"preset-state\t" + preset_store::activePresetName() + L"\t0");
+        if (preset_store::updateActivePreset()) sendPresetState();
         return 0;
     case kAvatarSettingsRevertPresetMessage:
         if (preset_store::revertActivePreset()) {
             applyPresetDraftToRuntime();
             sendLayerState();
-            postAvatarSettingsMessage(L"preset-state\t" + preset_store::activePresetName() + L"\t0");
+            sendPresetState();
         }
         return 0;
     case kAvatarSettingsAddLayerMessage:
@@ -2613,6 +2794,11 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
     case kAvatarSettingsLayerCommandMessage: {
         std::unique_ptr<std::wstring> command(reinterpret_cast<std::wstring *>(lParam));
         if (command) handleLayerCommand(*command, wParam != 0);
+        return 0;
+    }
+    case kAvatarSettingsPresetCommandMessage: {
+        std::unique_ptr<std::wstring> command(reinterpret_cast<std::wstring *>(lParam));
+        if (command) handlePresetCommand(*command);
         return 0;
     }
     case kAvatarSettingsBackgroundModeMessage:
@@ -2982,6 +3168,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         }
         postAvatarSettingsMessage(std::wstring(imageMessagePrefix(static_cast<ImageSlot>(wParam))) +
                                   L"-uploaded");
+        postAvatarSettingsMessage(L"preset-dirty\t1");
         return 0;
     case kSpoutStatusChangedMessage:
         sendSpoutSettings();
@@ -3174,7 +3361,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     g_defaultReactionImagePath = assetsDirectory + L"\\default-avatar-reaction.png";
     auto queueBundledDefault = [](const std::wstring &path, ImageSlot slot) {
         PendingImage decoded;
-        if (!decodePng(path.c_str(), decoded))
+        if (!decodePng(path.c_str(), decoded, 4096))
             throw E_INVALIDARG;
         decoded.slot = slot;
         decoded.persistSelection = false;
