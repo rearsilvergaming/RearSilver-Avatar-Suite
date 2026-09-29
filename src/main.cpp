@@ -13,6 +13,8 @@
 
 #include "settings_window.h"
 #include "audio_monitor.h"
+#include "layer_model.h"
+#include "preset_store.h"
 #include "resource.h"
 
 #include <algorithm>
@@ -74,6 +76,7 @@ enum class ImageSlot : WPARAM {
     PrimaryBlink = 2,
     ReactionBlink = 3,
     Background = 4,
+    Layer = 5,
 };
 
 struct PendingImage {
@@ -84,10 +87,13 @@ struct PendingImage {
     ImageSlot slot = ImageSlot::Primary;
     bool persistSelection = true;
     bool clearSlot = false;
+    std::wstring layerId;
 };
 
 std::mutex g_pendingImageMutex;
 std::deque<PendingImage> g_pendingImages;
+std::mutex g_layerStateMutex;
+std::vector<layer_model::Layer> g_layers;
 
 std::mutex g_primaryImageStateMutex;
 std::wstring g_primaryImagePath;
@@ -275,6 +281,10 @@ std::wstring loadSetting(const wchar_t *key)
     const std::wstring path = settingsFilePath();
     if (path.empty())
         return {};
+    if (preset_store::isPresetScopedKey(key)) {
+        preset_store::initialise(path);
+        return preset_store::loadDraftValue(key);
+    }
     wchar_t value[32768]{};
     GetPrivateProfileStringW(L"Avatar", key, L"", value,
                              static_cast<DWORD>(std::size(value)), path.c_str());
@@ -283,6 +293,8 @@ std::wstring loadSetting(const wchar_t *key)
 
 bool settingExists(const wchar_t *key)
 {
+    if (preset_store::isPresetScopedKey(key))
+        return !loadSetting(key).empty();
     const std::wstring path = settingsFilePath();
     if (path.empty())
         return false;
@@ -298,6 +310,12 @@ void saveSetting(const wchar_t *key, const std::wstring &value)
     const std::wstring path = settingsFilePath();
     if (path.empty())
         return;
+    if (preset_store::isPresetScopedKey(key)) {
+        preset_store::initialise(path);
+        preset_store::saveDraftValue(key, value);
+        postAvatarSettingsMessage(L"preset-dirty\t1");
+        return;
+    }
     ensureUnicodeSettingsFile(path);
     WritePrivateProfileStringW(L"Avatar", key, value.c_str(), path.c_str());
 }
@@ -815,6 +833,178 @@ bool decodePng(const wchar_t *path, PendingImage &decoded)
     return true;
 }
 
+void reloadDraftLayers()
+{
+    std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
+    {
+        std::lock_guard<std::mutex> lock(g_layerStateMutex);
+        g_layers = layers;
+    }
+    PendingImage clear;
+    clear.slot = ImageSlot::Layer;
+    clear.clearSlot = true;
+    clear.persistSelection = false;
+    {
+        std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+        g_pendingImages.push_back(std::move(clear));
+    }
+    for (const layer_model::Layer &layer : layers) {
+        if (layer.imagePath.empty()) continue;
+        try {
+            PendingImage decoded;
+            if (!decodePng(layer.imagePath.c_str(), decoded)) throw E_INVALIDARG;
+            decoded.slot = ImageSlot::Layer;
+            decoded.layerId = layer.id;
+            decoded.persistSelection = false;
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(decoded));
+        } catch (...) {
+            logMessage(L"Layer image is unavailable: " + layer.imagePath);
+        }
+    }
+}
+
+void applyPresetDraftToRuntime()
+{
+    auto number = [](const wchar_t *key, unsigned fallback, unsigned minimum, unsigned maximum) {
+        const std::wstring value = loadSetting(key);
+        return value.empty() ? fallback : std::clamp<unsigned>(wcstoul(value.c_str(), nullptr, 10), minimum, maximum);
+    };
+    auto flag = [](const wchar_t *key, bool fallback) {
+        const std::wstring value = loadSetting(key);
+        return value.empty() ? fallback : value != L"0";
+    };
+    auto queueImage = [](const wchar_t *key, ImageSlot slot, const std::wstring &fallback,
+                         std::wstring &statePath, bool &stateLoaded) {
+        const std::wstring path = loadSetting(key);
+        {
+            std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+            statePath = path;
+            stateLoaded = false;
+        }
+        const std::wstring source = path.empty() ? fallback : path;
+        if (source.empty()) {
+            if (slot == ImageSlot::Background) {
+                std::lock_guard<std::mutex> lock(g_windowBackgroundMutex);
+                g_windowBackgroundBgra.clear();
+                g_windowBackgroundWidth = 0;
+                g_windowBackgroundHeight = 0;
+            }
+            PendingImage clear;
+            clear.slot = slot;
+            clear.clearSlot = true;
+            clear.persistSelection = false;
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(clear));
+            return;
+        }
+        try {
+            PendingImage decoded;
+            if (!decodePng(source.c_str(), decoded)) throw E_INVALIDARG;
+            decoded.slot = slot;
+            decoded.persistSelection = false;
+            if (slot == ImageSlot::Background) cacheWindowBackground(decoded);
+            std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+            g_pendingImages.push_back(std::move(decoded));
+        } catch (...) {
+            if (!fallback.empty() && source != fallback) {
+                try {
+                    PendingImage decoded;
+                    if (!decodePng(fallback.c_str(), decoded)) throw E_INVALIDARG;
+                    decoded.slot = slot;
+                    decoded.persistSelection = false;
+                    std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+                    g_pendingImages.push_back(std::move(decoded));
+                } catch (...) {}
+            }
+        }
+    };
+
+    queueImage(L"PrimaryImage", ImageSlot::Primary, g_defaultPrimaryImagePath,
+               g_primaryImagePath, g_primaryImageLoaded);
+    queueImage(L"ReactionImage", ImageSlot::Reaction, g_defaultReactionImagePath,
+               g_reactionImagePath, g_reactionImageLoaded);
+    queueImage(L"PrimaryBlinkImage", ImageSlot::PrimaryBlink, L"",
+               g_primaryBlinkImagePath, g_primaryBlinkImageLoaded);
+    queueImage(L"ReactionBlinkImage", ImageSlot::ReactionBlink, L"",
+               g_reactionBlinkImagePath, g_reactionBlinkImageLoaded);
+    queueImage(L"BackgroundImage", ImageSlot::Background, L"",
+               g_backgroundImagePath, g_backgroundImageLoaded);
+    reloadDraftLayers();
+
+    g_avatarScalePercent.store(number(L"AvatarScalePercent", 100, 25, 250));
+    g_reactionsEnabled.store(flag(L"ReactionsEnabled", true));
+    g_blinkEnabled.store(flag(L"BlinkEnabled", true));
+    g_blinkMinimumMs.store(number(L"BlinkMinimumMs", 3000, 250, 30000));
+    g_blinkMaximumMs.store(number(L"BlinkMaximumMs", 6000, g_blinkMinimumMs.load(), 30000));
+    g_blinkDurationMs.store(number(L"BlinkDurationMs", 150, 50, 1000));
+    g_windowBackgroundMode.store(number(L"WindowBackgroundMode", 2, 1, 3));
+    g_fixedBackgroundMode.store(number(L"FixedBackgroundMode", 0, 0, 3) == 3 ? 3 : 0);
+    g_backgroundFit.store(number(L"BackgroundFit", 0, 0, 3));
+
+    const std::wstring stack = settingExists(L"EffectStack") ? loadSetting(L"EffectStack") : L"bounce";
+    {
+        std::lock_guard<std::mutex> lock(g_effectStackMutex);
+        g_effectStack = stack;
+    }
+    const std::wstring padded = L"," + stack + L",";
+    g_bounceAdded.store(padded.find(L",bounce,") != std::wstring::npos);
+    g_breathingAdded.store(padded.find(L",breathing,") != std::wstring::npos);
+    g_squashAdded.store(padded.find(L",squash,") != std::wstring::npos);
+    g_shakeAdded.store(padded.find(L",shake,") != std::wstring::npos);
+    g_brightnessAdded.store(padded.find(L",brightness,") != std::wstring::npos);
+    g_floatAdded.store(padded.find(L",float,") != std::wstring::npos);
+    g_tiltAdded.store(padded.find(L",tilt,") != std::wstring::npos);
+
+    g_bounceEnabled.store(flag(L"BounceEnabled", true));
+    g_bounceHeightPixels.store(number(L"BounceHeightPixels", 40, 5, 160));
+    g_bounceDurationMs.store(number(L"BounceDurationMs", 350, 100, 1200));
+    g_breathingEnabled.store(flag(L"BreathingEnabled", true));
+    g_breathingMode.store(number(L"BreathingMode", 1, 0, 2));
+    g_breathingIdleAmount.store(number(L"BreathingIdleAmount", 20, 0, 100));
+    g_breathingReactionAmount.store(number(L"BreathingReactionAmount", 30, 0, 100));
+    g_breathingCycleMs.store(number(L"BreathingCycleMs", 2500, 500, 10000));
+    g_squashEnabled.store(flag(L"SquashEnabled", true));
+    g_squashIntensity.store(number(L"SquashIntensity", 70, 0, 300));
+    g_squashDurationMs.store(number(L"SquashDurationMs", 500, 200, 1600));
+    g_shakeEnabled.store(flag(L"ShakeEnabled", true));
+    g_shakeIntensity.store(number(L"ShakeIntensity", 70, 0, 300));
+    g_shakeSpeed.store(number(L"ShakeSpeed", 45, 8, 120));
+    g_shakeDirection.store(number(L"ShakeDirection", 0, 0, 2));
+    g_shakeWobble.store(flag(L"ShakeWobble", true));
+    g_brightnessEnabled.store(flag(L"BrightnessEnabled", true));
+    g_brightnessIdle.store(number(L"BrightnessIdle", 70, 10, 100));
+    g_brightnessReaction.store(number(L"BrightnessReaction", 115, 100, 200));
+    g_brightnessTransitionMs.store(number(L"BrightnessTransitionMs", 150, 0, 2000));
+    g_floatEnabled.store(flag(L"FloatEnabled", true));
+    g_floatMode.store(number(L"FloatMode", 1, 0, 2));
+    const std::wstring floatHeight = loadSetting(L"FloatHeightPixels");
+    const std::wstring legacyFloatHeight = loadSetting(L"FloatIdlePixels");
+    g_floatHeightPixels.store(std::clamp<unsigned>(
+        wcstoul((!floatHeight.empty() ? floatHeight : legacyFloatHeight).c_str(), nullptr, 10), 0, 160));
+    if (floatHeight.empty() && legacyFloatHeight.empty()) g_floatHeightPixels.store(35);
+    g_floatCycleMs.store(number(L"FloatCycleMs", 4000, 1000, 12000));
+    g_floatDirection.store(number(L"FloatDirection", 0, 0, 2));
+    g_floatDriftPixels.store(number(L"FloatDriftPixels", 30, 0, 120));
+    g_tiltEnabled.store(flag(L"TiltEnabled", true));
+    g_tiltAngleDegrees.store(number(L"TiltAngleDegrees", 12, 0, 60));
+    g_tiltDirection.store(number(L"TiltDirection", 2, 0, 2));
+    g_tiltTransitionMs.store(number(L"TiltTransitionMs", 225, 0, 2000));
+    if (g_tiltDirection.load() < 2)
+        g_tiltActiveSign.store(g_tiltDirection.load() == 0 ? -1 : 1);
+
+    sendPrimaryImageState();
+    sendReactionImageState();
+    sendBlinkImageState(ImageSlot::PrimaryBlink);
+    sendBlinkImageState(ImageSlot::ReactionBlink);
+    sendBlinkSettings();
+    sendBounceSettings();
+    sendBackgroundSettings();
+    sendAvatarTransformSettings();
+    g_transformPending.store(true);
+    if (g_mainWindow) InvalidateRect(g_mainWindow, nullptr, TRUE);
+}
+
 void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
 {
     wchar_t path[32768]{};
@@ -833,6 +1023,9 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
             PendingImage decoded;
             if (!decodePng(path, decoded))
                 throw E_INVALIDARG;
+            const std::wstring managedPath = preset_store::importPngAsset(path);
+            if (!managedPath.empty())
+                decoded.path = managedPath;
             decoded.slot = slot;
             if (slot == ImageSlot::Background)
                 cacheWindowBackground(decoded);
@@ -854,6 +1047,120 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
         postAvatarSettingsMessage(std::wstring(imageMessagePrefix(slot)) + L"-cancelled");
     }
     g_dialogOpen.store(false);
+}
+
+void sendLayerState()
+{
+    const std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
+    postAvatarSettingsMessage(L"layer-list-reset\t" + std::to_wstring(layers.size()));
+    for (const layer_model::Layer &layer : layers) {
+        postAvatarSettingsMessage(L"layer-item\t" + layer.id + L"\t" + layer.name + L"\t" +
+                                  fileNameFromPath(layer.imagePath) + L"\t" +
+                                  (layer.visible ? L"1" : L"0") + L"\t" +
+                                  (layer.abovePrimary ? L"1" : L"0") + L"\t" + layer.purpose + L"\t" +
+                                  (layer.inheritAvatarEffects ? L"1" : L"0") + L"\t" +
+                                  std::to_wstring(layer.positionX) + L"\t" + std::to_wstring(layer.positionY) + L"\t" +
+                                  std::to_wstring(layer.pivotX) + L"\t" + std::to_wstring(layer.pivotY) + L"\t" +
+                                  std::to_wstring(layer.scaleX) + L"\t" + std::to_wstring(layer.scaleY) + L"\t" +
+                                  std::to_wstring(layer.rotationTenths) + L"\t" + std::to_wstring(layer.opacity) + L"\t" +
+                                  (layer.scaleLinked ? L"1" : L"0") + L"\t" +
+                                  (layer.tailWagAdded ? L"1" : L"0") + L"\t" +
+                                  (layer.tailWagEnabled ? L"1" : L"0") + L"\t" +
+                                  std::to_wstring(layer.tailWagAngle) + L"\t" +
+                                  std::to_wstring(layer.tailWagCycleMs) + L"\t" +
+                                  std::to_wstring(layer.tailWagReactionBoost) + L"\t" +
+                                  std::to_wstring(layer.tailWagPivot));
+    }
+    postAvatarSettingsMessage(L"layer-list-complete");
+}
+
+void addLayerFromPicker(HWND owner)
+{
+    if (layer_model::loadDraftLayers().size() >= layer_model::kMaximumLayers) {
+        MessageBoxW(owner, L"A preset can contain up to 16 additional layers.",
+                    L"RearSilver Avatar Suite — Layers", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    wchar_t path[32768]{};
+    OPENFILENAMEW picker{};
+    picker.lStructSize = sizeof(picker);
+    picker.hwndOwner = owner && IsWindow(owner) ? owner : g_mainWindow;
+    picker.lpstrFilter = L"PNG images\0*.png\0All files\0*.*\0";
+    picker.lpstrFile = path;
+    picker.nMaxFile = static_cast<DWORD>(std::size(path));
+    picker.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    g_dialogOpen.store(true);
+    if (GetOpenFileNameW(&picker)) {
+        try {
+            PendingImage validation;
+            if (!decodePng(path, validation)) throw E_INVALIDARG;
+            const std::wstring managed = preset_store::importPngAsset(path);
+            if (managed.empty()) throw E_FAIL;
+            std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
+            layers.push_back(layer_model::makeLayer(fileNameFromPath(path), managed));
+            if (!layer_model::saveDraftLayers(layers)) throw E_FAIL;
+            reloadDraftLayers();
+            postAvatarSettingsMessage(L"preset-dirty\t1");
+            sendLayerState();
+        } catch (...) {
+            MessageBoxW(picker.hwndOwner,
+                        L"Could not add this layer. Choose a valid PNG no larger than 8192 × 8192 pixels.",
+                        L"RearSilver Avatar Suite — Layers", MB_OK | MB_ICONERROR);
+        }
+    }
+    g_dialogOpen.store(false);
+}
+
+void handleLayerCommand(const std::wstring &command, bool previewOnly)
+{
+    const size_t first = command.find(L'\t');
+    const size_t second = first == std::wstring::npos ? std::wstring::npos : command.find(L'\t', first + 1);
+    const std::wstring action = command.substr(0, first);
+    const std::wstring id = first == std::wstring::npos ? L"" : command.substr(first + 1, second - first - 1);
+    const std::wstring value = second == std::wstring::npos ? L"" : command.substr(second + 1);
+    std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
+    const auto found = std::find_if(layers.begin(), layers.end(), [&](const auto &layer) { return layer.id == id; });
+    if (found == layers.end()) return;
+    const bool removesTexture = action == L"remove";
+    if (action == L"remove") layers.erase(found);
+    else if (action == L"visible") found->visible = !found->visible;
+    else if (action == L"side") found->abovePrimary = !found->abovePrimary;
+    else if (action == L"up" && found != layers.begin()) std::iter_swap(found, found - 1);
+    else if (action == L"down" && found + 1 != layers.end()) std::iter_swap(found, found + 1);
+    else if (action == L"name") found->name = value.empty() ? found->name : value.substr(0, 80);
+    else if (action == L"purpose") found->purpose = value;
+    else if (action == L"inherit") found->inheritAvatarEffects = value != L"0";
+    else if (action == L"x") found->positionX = std::clamp(_wtoi(value.c_str()), -4096, 4096);
+    else if (action == L"y") found->positionY = std::clamp(_wtoi(value.c_str()), -4096, 4096);
+    else if (action == L"pivot-x") found->pivotX = std::clamp(_wtoi(value.c_str()), 0, 100);
+    else if (action == L"pivot-y") found->pivotY = std::clamp(_wtoi(value.c_str()), 0, 100);
+    else if (action == L"scale-x") { found->scaleX = std::clamp(_wtoi(value.c_str()), 1, 1000); if (found->scaleLinked) found->scaleY = found->scaleX; }
+    else if (action == L"scale-y") { found->scaleY = std::clamp(_wtoi(value.c_str()), 1, 1000); if (found->scaleLinked) found->scaleX = found->scaleY; }
+    else if (action == L"scale-link") found->scaleLinked = value != L"0";
+    else if (action == L"rotation") found->rotationTenths = std::clamp(_wtoi(value.c_str()), -3600, 3600);
+    else if (action == L"opacity") found->opacity = std::clamp(_wtoi(value.c_str()), 0, 100);
+    else if (action == L"tail-add") found->tailWagAdded = true;
+    else if (action == L"tail-remove") found->tailWagAdded = false;
+    else if (action == L"tail-enabled") found->tailWagEnabled = value != L"0";
+    else if (action == L"tail-angle") found->tailWagAngle = std::clamp(_wtoi(value.c_str()), 0, 90);
+    else if (action == L"tail-cycle") found->tailWagCycleMs = std::clamp(_wtoi(value.c_str()), 200, 10000);
+    else if (action == L"tail-boost") found->tailWagReactionBoost = std::clamp(_wtoi(value.c_str()), 0, 300);
+    else if (action == L"tail-pivot") found->tailWagPivot = std::clamp(_wtoi(value.c_str()), 0, 9);
+    else return;
+    if (previewOnly) {
+        std::lock_guard<std::mutex> lock(g_layerStateMutex);
+        g_layers = layers;
+        return;
+    }
+    if (layer_model::saveDraftLayers(layers)) {
+        if (removesTexture) reloadDraftLayers();
+        else { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_layers = layers; }
+        postAvatarSettingsMessage(L"preset-dirty\t1");
+        if (action == L"remove" || action == L"up" || action == L"down" ||
+            action == L"visible" || action == L"side" || action == L"purpose" ||
+            action == L"tail-add" || action == L"tail-remove")
+            sendLayerState();
+    }
 }
 
 bool isProcessRunning(const wchar_t *name)
@@ -986,7 +1293,9 @@ public:
 
         try {
             if (pending.clearSlot) {
-                if (pending.slot == ImageSlot::Background) {
+                if (pending.slot == ImageSlot::Layer) {
+                    layerImages_.clear();
+                } else if (pending.slot == ImageSlot::Background) {
                     backgroundImage_ = {};
                     backgroundImageLoaded_ = false;
                 } else if (pending.slot == ImageSlot::PrimaryBlink) {
@@ -999,7 +1308,14 @@ public:
                 return;
             }
             TextureAsset replacement = createTexture(pending.rgba.data(), pending.width, pending.height);
-            if (pending.slot == ImageSlot::Background) {
+            if (pending.slot == ImageSlot::Layer) {
+                const auto found = std::find_if(layerImages_.begin(), layerImages_.end(),
+                    [&](const LayerTexture &item) { return item.id == pending.layerId; });
+                if (found == layerImages_.end())
+                    layerImages_.push_back({pending.layerId, std::move(replacement)});
+                else
+                    found->texture = std::move(replacement);
+            } else if (pending.slot == ImageSlot::Background) {
                 backgroundImage_ = std::move(replacement);
                 backgroundImageLoaded_ = true;
                 {
@@ -1007,15 +1323,19 @@ public:
                     g_backgroundImagePath = pending.path;
                     g_backgroundImageLoaded = true;
                 }
-                saveSetting(L"BackgroundImage", pending.path);
+                if (pending.persistSelection)
+                    saveSetting(L"BackgroundImage", pending.path);
             } else if (pending.slot == ImageSlot::Reaction) {
                 reactionAvatar_ = std::move(replacement);
                 reactionAvatarLoaded_ = true;
                 g_reactionAvailable.store(true);
+                {
+                    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                    g_reactionImageLoaded = true;
+                }
                 if (pending.persistSelection) {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_reactionImagePath = pending.path;
-                    g_reactionImageLoaded = true;
                     saveSetting(L"ReactionImage", pending.path);
                 }
             } else if (pending.slot == ImageSlot::PrimaryBlink) {
@@ -1026,7 +1346,8 @@ public:
                     g_primaryBlinkImagePath = pending.path;
                     g_primaryBlinkImageLoaded = true;
                 }
-                saveSetting(L"PrimaryBlinkImage", pending.path);
+                if (pending.persistSelection)
+                    saveSetting(L"PrimaryBlinkImage", pending.path);
             } else if (pending.slot == ImageSlot::ReactionBlink) {
                 reactionBlinkAvatar_ = std::move(replacement);
                 reactionBlinkAvatarLoaded_ = true;
@@ -1035,13 +1356,17 @@ public:
                     g_reactionBlinkImagePath = pending.path;
                     g_reactionBlinkImageLoaded = true;
                 }
-                saveSetting(L"ReactionBlinkImage", pending.path);
+                if (pending.persistSelection)
+                    saveSetting(L"ReactionBlinkImage", pending.path);
             } else {
                 primaryAvatar_ = std::move(replacement);
+                {
+                    std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
+                    g_primaryImageLoaded = true;
+                }
                 if (pending.persistSelection) {
                     std::lock_guard<std::mutex> lock(g_primaryImageStateMutex);
                     g_primaryImagePath = pending.path;
-                    g_primaryImageLoaded = true;
                     saveSetting(L"PrimaryImage", pending.path);
                 }
             }
@@ -1347,9 +1672,67 @@ public:
         currentBrightness_ = brightnessStart_ +
                              (brightnessTarget_ - brightnessStart_) * brightnessEase;
         setPixelBrightness(currentBrightness_);
+        std::vector<layer_model::Layer> layers;
+        {
+            std::lock_guard<std::mutex> lock(g_layerStateMutex);
+            layers = g_layers;
+        }
+        auto drawLayers = [&](bool abovePrimary) {
+            for (const layer_model::Layer &layer : layers) {
+                if (!layer.visible || layer.abovePrimary != abovePrimary) continue;
+                const auto found = std::find_if(layerImages_.begin(), layerImages_.end(),
+                    [&](const LayerTexture &item) { return item.id == layer.id; });
+                if (found == layerImages_.end()) continue;
+                const float localX = static_cast<float>(layer.scaleX) / 100.0f;
+                const float localY = static_cast<float>(layer.scaleY) / 100.0f;
+                const float rootX = layer.inheritAvatarEffects ? avatarWidth / activeAvatar->width : scale;
+                const float rootY = layer.inheritAvatarEffects ? avatarHeight / activeAvatar->height : scale;
+                const float layerWidth = found->texture.width * rootX * localX;
+                const float layerHeight = found->texture.height * rootY * localY;
+                const float motionX = layer.inheritAvatarEffects ? floatX + shakeX : 0.0f;
+                const float motionY = layer.inheritAvatarEffects ? floatY + bounce + shakeY : 0.0f;
+                const float centreX = static_cast<float>(width_) * 0.5f + motionX + layer.positionX;
+                const float centreY = baseBottom - avatarHeight * 0.5f + motionY + layer.positionY;
+                const float rootRotation = layer.inheritAvatarEffects ? shakeRotation + currentTilt_ : 0.0f;
+                const float localRotation = static_cast<float>(layer.rotationTenths) * 0.001745329252f;
+                float tailWagRotation = 0.0f;
+                if (layer.tailWagAdded && layer.tailWagEnabled) {
+                    const unsigned cycle = std::max(200, layer.tailWagCycleMs);
+                    const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
+                    if (found->lastReactionMixUpdate == 0) found->lastReactionMixUpdate = now;
+                    const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - found->lastReactionMixUpdate, 100));
+                    found->lastReactionMixUpdate = now;
+                    const float targetMix = reactionActive ? 1.0f : 0.0f;
+                    const float blend = std::min(1.0f, elapsed / 180.0f);
+                    found->reactionMix += (targetMix - found->reactionMix) * blend;
+                    const float reactionMultiplier = 1.0f + found->reactionMix *
+                        static_cast<float>(layer.tailWagReactionBoost) / 100.0f;
+                    tailWagRotation = std::sin(phase) * static_cast<float>(layer.tailWagAngle) *
+                                      reactionMultiplier * 0.0174532925199f;
+                }
+                const float pivotU = static_cast<float>(layer.pivotX) / 100.0f;
+                const float pivotV = static_cast<float>(layer.pivotY) / 100.0f;
+                static constexpr float anchorU[] = {0.0f,0.0f,0.5f,1.0f,0.0f,0.5f,1.0f,0.0f,0.5f,1.0f};
+                static constexpr float anchorV[] = {0.0f,0.0f,0.0f,0.0f,0.5f,0.5f,0.5f,1.0f,1.0f,1.0f};
+                const int wagPivot = std::clamp(layer.tailWagPivot, 0, 9);
+                const float wagPivotU = wagPivot == 0 ? pivotU : anchorU[wagPivot];
+                const float wagPivotV = wagPivot == 0 ? pivotV : anchorV[wagPivot];
+                const float avatarRootPivotX = static_cast<float>(width_) * 0.5f + floatX + shakeX;
+                const float avatarRootPivotY = baseBottom + floatY + bounce + shakeY;
+                setPixelAppearance(layer.inheritAvatarEffects ? currentBrightness_ : 1.0f,
+                                   static_cast<float>(layer.opacity) / 100.0f);
+                draw(found->texture, centreX - layerWidth * 0.5f, centreY - layerHeight * 0.5f,
+                     layerWidth, layerHeight, localRotation, pivotU, pivotV,
+                     tailWagRotation, wagPivotU, wagPivotV, rootRotation,
+                     avatarRootPivotX, avatarRootPivotY);
+            }
+        };
+        drawLayers(false);
+        setPixelBrightness(currentBrightness_);
         draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f + floatX + shakeX,
              baseBottom - avatarHeight + floatY + bounce + shakeY, avatarWidth,
              avatarHeight, shakeRotation + currentTilt_);
+        drawLayers(true);
         setPixelBrightness(1.0f);
 
         const bool overlayVisible = g_applicationActive.load() && !g_dialogOpen.load() &&
@@ -1498,8 +1881,8 @@ private:
             "struct P{float4 p:SV_POSITION;float2 uv:TEXCOORD0;};"
             "P vs(V i){P o;o.p=float4(i.p,0,1);o.uv=i.uv;return o;}"
             "Texture2D img:register(t0);SamplerState smp:register(s0);"
-            "cbuffer B:register(b0){float brightness;float3 brightnessPad;}"
-            "float4 ps(P i):SV_TARGET{float4 c=img.Sample(smp,i.uv);c.rgb*=brightness;return c;}";
+            "cbuffer B:register(b0){float brightness;float opacity;float2 appearancePad;}"
+            "float4 ps(P i):SV_TARGET{float4 c=img.Sample(smp,i.uv);c.rgb*=brightness;c.a*=opacity;return c;}";
         ComPtr<ID3DBlob> vertexBlob;
         ComPtr<ID3DBlob> pixelBlob;
         ComPtr<ID3DBlob> errors;
@@ -1616,12 +1999,21 @@ private:
 
     void setPixelBrightness(float brightness)
     {
-        const float values[4] = {brightness, 0.0f, 0.0f, 0.0f};
+        const float values[4] = {brightness, 1.0f, 0.0f, 0.0f};
+        context_->UpdateSubresource(brightnessBuffer_.Get(), 0, nullptr, values, 0, 0);
+    }
+
+    void setPixelAppearance(float brightness, float opacity)
+    {
+        const float values[4] = {brightness, std::clamp(opacity, 0.0f, 1.0f), 0.0f, 0.0f};
         context_->UpdateSubresource(brightnessBuffer_.Get(), 0, nullptr, values, 0, 0);
     }
 
     void draw(const TextureAsset &texture, float x, float y, float width, float height,
-              float rotation = 0.0f)
+              float rotation = 0.0f, float pivotU = 0.5f, float pivotV = 1.0f,
+              float secondaryRotation = 0.0f, float secondaryPivotU = 0.5f,
+              float secondaryPivotV = 0.5f, float rootRotation = 0.0f,
+              float rootPivotX = 0.0f, float rootPivotY = 0.0f)
     {
         if (!texture.view || width <= 0 || height <= 0)
             return;
@@ -1629,7 +2021,7 @@ private:
             return std::pair<float, float>{2.0f * pixelX / width_ - 1.0f,
                                            1.0f - 2.0f * pixelY / height_};
         };
-        auto rotate = [rotation, pivotX = x + width * 0.5f, pivotY = y + height](float px, float py) {
+        auto rotate = [rotation, pivotX = x + width * pivotU, pivotY = y + height * pivotV](float px, float py) {
             if (std::abs(rotation) < 0.000001f)
                 return std::pair<float, float>{px, py};
             const float cosine = std::cos(rotation);
@@ -1639,10 +2031,31 @@ private:
             return std::pair<float, float>{pivotX + dx * cosine - dy * sine,
                                            pivotY + dx * sine + dy * cosine};
         };
-        const auto topLeftPixel = rotate(x, y);
-        const auto topRightPixel = rotate(x + width, y);
-        const auto bottomLeftPixel = rotate(x, y + height);
-        const auto bottomRightPixel = rotate(x + width, y + height);
+        auto rotateSecondary = [secondaryRotation, pivotX = x + width * secondaryPivotU,
+                                pivotY = y + height * secondaryPivotV](std::pair<float,float> point) {
+            if (std::abs(secondaryRotation) < 0.000001f) return point;
+            const float cosine = std::cos(secondaryRotation);
+            const float sine = std::sin(secondaryRotation);
+            const float dx = point.first - pivotX;
+            const float dy = point.second - pivotY;
+            return std::pair<float,float>{pivotX + dx * cosine - dy * sine,
+                                          pivotY + dx * sine + dy * cosine};
+        };
+        auto composeRotations = [&](float px, float py) {
+            const auto local = rotateSecondary({px, py});
+            const auto layerPoint = rotate(local.first, local.second);
+            if (std::abs(rootRotation) < 0.000001f) return layerPoint;
+            const float cosine = std::cos(rootRotation);
+            const float sine = std::sin(rootRotation);
+            const float dx = layerPoint.first - rootPivotX;
+            const float dy = layerPoint.second - rootPivotY;
+            return std::pair<float,float>{rootPivotX + dx * cosine - dy * sine,
+                                          rootPivotY + dx * sine + dy * cosine};
+        };
+        const auto topLeftPixel = composeRotations(x, y);
+        const auto topRightPixel = composeRotations(x + width, y);
+        const auto bottomLeftPixel = composeRotations(x, y + height);
+        const auto bottomRightPixel = composeRotations(x + width, y + height);
         const auto topLeft = toClip(topLeftPixel.first, topLeftPixel.second);
         const auto topRight = toClip(topRightPixel.first, topRightPixel.second);
         const auto bottomLeft = toClip(bottomLeftPixel.first, bottomLeftPixel.second);
@@ -1759,6 +2172,13 @@ private:
     TextureAsset toolsIcon_;
     TextureAsset settingsIcon_;
     TextureAsset backgroundImage_;
+    struct LayerTexture {
+        std::wstring id;
+        TextureAsset texture;
+        float reactionMix = 0.0f;
+        ULONGLONG lastReactionMixUpdate = 0;
+    };
+    std::vector<LayerTexture> layerImages_;
     bool backgroundImageLoaded_ = false;
     spoutDX spoutSender_;
     bool spoutDeviceOpen_ = false;
@@ -2161,6 +2581,8 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         postAvatarSettingsMessage(wParam != FALSE ? L"reaction-preview-on" : L"reaction-preview-off");
         return 0;
     case kAvatarSettingsReadyMessage:
+        postAvatarSettingsMessage(L"preset-state\t" + preset_store::activePresetName() + L"\t" +
+                                  (preset_store::hasUnsavedChanges() ? L"1" : L"0"));
         sendPrimaryImageState();
         sendReactionImageState();
         sendBlinkImageState(ImageSlot::PrimaryBlink);
@@ -2170,9 +2592,29 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         sendBounceSettings();
         sendBackgroundSettings();
         sendAvatarTransformSettings();
+        sendLayerState();
         sendSpoutSettings();
         postAvatarSettingsMessage(L"reaction-preview-off");
         return 0;
+    case kAvatarSettingsUpdatePresetMessage:
+        if (preset_store::updateActivePreset())
+            postAvatarSettingsMessage(L"preset-state\t" + preset_store::activePresetName() + L"\t0");
+        return 0;
+    case kAvatarSettingsRevertPresetMessage:
+        if (preset_store::revertActivePreset()) {
+            applyPresetDraftToRuntime();
+            sendLayerState();
+            postAvatarSettingsMessage(L"preset-state\t" + preset_store::activePresetName() + L"\t0");
+        }
+        return 0;
+    case kAvatarSettingsAddLayerMessage:
+        addLayerFromPicker(reinterpret_cast<HWND>(lParam));
+        return 0;
+    case kAvatarSettingsLayerCommandMessage: {
+        std::unique_ptr<std::wstring> command(reinterpret_cast<std::wstring *>(lParam));
+        if (command) handleLayerCommand(*command, wParam != 0);
+        return 0;
+    }
     case kAvatarSettingsBackgroundModeMessage:
         if (g_captureMethod.load() == 1) {
             const unsigned mode = std::clamp<unsigned>(static_cast<unsigned>(wParam), 1, 3);
@@ -3021,6 +3463,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     const std::wstring savedTiltTransition = loadSetting(L"TiltTransitionMs");
     if (!savedTiltTransition.empty())
         g_tiltTransitionMs.store(std::clamp<unsigned>(wcstoul(savedTiltTransition.c_str(), nullptr, 10), 0, 2000));
+    reloadDraftLayers();
     g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
 
     g_running.store(true);

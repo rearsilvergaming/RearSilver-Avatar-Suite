@@ -129,6 +129,17 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 - Layers inherit whole-avatar effects by default. Each layer provides an `Inherit avatar effects` control for exceptional overlays that must remain stationary or otherwise independent of the avatar-root effect stack.
 - Filter or recommend layer effects according to the layer purpose where useful. Specialised choices such as Tail Wag or Eye Movement may appear for matching layer purposes, while general effects such as Float remain available where technically compatible.
 
+## Preset ownership and editing
+
+- A preset is the authoritative saved snapshot of one complete avatar configuration. It owns the idle, reaction, idle-blink, and reaction-blink images; ordered layers and their images, transforms, visibility, purposes, and local effects; avatar scale; blink configuration; and the ordered whole-avatar effect stack with every effect value.
+- Imported PNGs are copied into an application-managed, content-addressed asset library. Presets reference stable asset identifiers so moving or deleting an original user file cannot break the saved avatar, and presets may share identical assets without unnecessary duplication.
+- Each preset has a stable internal identifier independent of its editable display name. Automation targets the identifier so renaming a preset cannot break a saved WebSocket action.
+- The Presets page manages creation, selection, duplication, renaming, deletion, import, and export. Avatar, Blink, Effects, and Layers edit the currently active preset rather than maintaining separate disconnected configurations.
+- Every preset-scoped settings page visibly names the preset being edited and exposes the same `Update preset` and `Revert changes` controls. Controls update the renderer and preview immediately, but the complete preset remains an unsaved draft until `Update preset` atomically saves the full snapshot.
+- `Revert changes` restores the last saved snapshot. Switching presets with unsaved changes must offer Update, Discard, and Remain choices. Closing the application preserves a recoverable draft rather than silently losing work.
+- Global settings do not mark the preset dirty. These include microphone device and noise calibration, capture and output method, Stream Suite integration, WebSocket server configuration, and general application preferences.
+- WebSocket preset activation always uses the last saved snapshot, never an unfinished draft. Switching a preset must apply its complete visual state atomically so images, layers, blink settings, and effects from different presets are never briefly mixed.
+
 ## Future automation and event integration
 
 - RearSilver Avatar Suite should support temporary preset or avatar-state changes triggered by external events, then restore the prior state automatically after a configured duration.

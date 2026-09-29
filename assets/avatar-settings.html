@@ -19,6 +19,8 @@ body{margin:0;background:#0e151e;color:var(--text);font:14px Sora,Segoe UI,sans-
 .shell{min-width:0;padding:24px 28px 34px}
 .hero{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:18px}
 h1{font-size:28px;margin:0 0 7px}.hero p,.intro{color:var(--muted);line-height:1.55;margin:0}
+.preset-editor{display:flex;align-items:center;justify-content:space-between;gap:18px;margin:0 0 14px;padding:13px 16px;border:1px solid #344257;border-radius:12px;background:var(--surface)}
+.preset-editor[hidden]{display:none}.preset-editor strong{display:block}.preset-editor-copy{margin-top:4px;color:var(--muted);font-size:12px}.preset-editor-actions{display:flex;gap:8px;flex-wrap:wrap}
 button{border:1px solid var(--border);border-radius:9px;background:#1e2430;color:var(--text);font:700 13px Sora;padding:10px 14px;cursor:pointer}
 button:hover{border-color:var(--cyan);background:#063847}
 .primary{background:var(--cyan-dark);border-color:var(--cyan)}
@@ -38,6 +40,7 @@ button:hover{border-color:var(--cyan);background:#063847}
 button:disabled{cursor:not-allowed;opacity:.45}
 label{display:block;color:var(--muted);font-size:12px;margin-bottom:7px}
 select{width:100%;border:1px solid var(--border);border-radius:9px;background:#1e2430;color:var(--text);font:600 13px Sora;padding:11px 12px}
+input[type=text],input[type=number]{width:100%;border:1px solid var(--border);border-radius:9px;background:#1e2430;color:var(--text);font:600 13px Sora;padding:11px 12px}
 input[type=color]{width:72px;height:42px;padding:3px;border:1px solid var(--border);border-radius:9px;background:#1e2430;cursor:pointer}
 .colour-row{display:flex;align-items:center;gap:12px}.colour-value{font-weight:800;color:var(--muted);text-transform:uppercase}.preset-buttons{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}.preset-buttons button{padding:8px 11px}
 .meter{height:18px;margin-top:16px;overflow:hidden;border:1px solid #344257;border-radius:999px;background:#0b0f14}
@@ -45,6 +48,7 @@ input[type=color]{width:72px;height:42px;padding:3px;border:1px solid var(--bord
 .meter{position:relative}.threshold-marker{position:absolute;top:-2px;bottom:-2px;left:18%;width:2px;background:#fff;box-shadow:0 0 0 1px #0b0f14}
 .meter-scale{display:flex;justify-content:space-between;margin-top:7px;color:var(--muted);font-size:11px}
 .control-grid{display:grid;grid-template-columns:repeat(2,minmax(220px,1fr));gap:16px;margin-top:18px}
+.control-grid[hidden]{display:none}
 .range-heading{display:flex;justify-content:space-between;gap:10px;color:var(--muted);font-size:12px}
 input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .range-scale{position:relative;height:16px;margin-top:5px}.range-scale button{position:absolute;top:0;padding:0;border:0;background:transparent;color:#7890aa;font:600 10px Sora;white-space:nowrap;transform:translateX(-50%)}.range-scale button:hover{border:0;background:transparent;color:var(--cyan)}
@@ -57,12 +61,16 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .state-pill{border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;padding:5px 8px;text-transform:uppercase}
 .tag{display:inline-block;margin-top:16px;border-radius:999px;background:#093b48;color:var(--cyan);font-size:10px;font-weight:800;letter-spacing:.04em;padding:5px 8px;text-transform:uppercase}
 .effect-stack{display:grid;gap:12px}.effect-card{min-height:0}.effect-card[hidden]{display:none}
+.layer-list{display:grid;gap:12px}.layer-card{min-height:0}.layer-heading{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:14px}.layer-title{min-width:0}.layer-heading h3{margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.layer-title .status{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.layer-tools{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.layer-tools button{padding:7px 10px}.layer-meta{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}.layer-empty{padding:30px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);text-align:center;line-height:1.6}
+.scale-row{display:grid;grid-column:1/-1;grid-template-columns:minmax(0,1fr) 44px minmax(0,1fr);gap:10px;align-items:end}.scale-link{height:42px;padding:0;font-size:18px}.scale-link.active{border-color:var(--cyan);background:var(--cyan-dark);color:#fff}
+.layer-effects{grid-column:1/-1;margin-top:2px;border:1px solid #344257;border-radius:10px;background:#111821}.layer-effects summary{padding:12px 14px;cursor:pointer;font-weight:800}.layer-effects-body{padding:0 14px 14px}.layer-effects-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.layer-effects-heading h4{margin:0}.layer-effects-heading .setting-actions{justify-content:flex-end}
 .effect-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.effect-heading h3{margin:0}.effect-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.effect-tools button{padding:7px 10px}.effect-body[hidden]{display:none}.effect-body>p{margin-top:12px}
 .empty-effects{padding:28px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);text-align:center;line-height:1.6}
 .add-effect{margin-top:12px;width:100%}.modal-backdrop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.72)}.modal-backdrop[hidden]{display:none}.modal{width:min(720px,100%);max-height:calc(100vh - 48px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:20px;box-shadow:0 20px 70px rgba(0,0,0,.55)}.modal-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.modal-heading h2{margin:0}.effect-choice{display:grid;grid-template-columns:1fr auto;align-items:center;gap:18px;margin-top:12px;padding:16px;background:var(--raised);border:1px solid #344257;border-radius:12px;transition:opacity 120ms ease,border-color 120ms ease}.effect-choice h3{margin:0 0 6px}.effect-choice p{margin:0;color:var(--muted);line-height:1.5}.effect-choice.already-added{opacity:.48;border-color:var(--border)}.effect-choice.already-added button{min-width:116px}
 @property --breath-x{syntax:'<number>';inherits:false;initial-value:1}@property --breath-y{syntax:'<number>';inherits:false;initial-value:1}.preview-stage img.breathing{transform-origin:50% 100%;animation:preview-breath var(--breath-cycle,2500ms) ease-in-out infinite;transition:--breath-x 180ms linear,--breath-y 180ms linear}@keyframes preview-breath{0%,100%{scale:1 1}50%{scale:var(--breath-x,.995) var(--breath-y,1.02)}}
 .preview-stage img.squashing{transform-origin:50% 100%}
 @media(max-width:1050px){.settings-layout{grid-template-columns:1fr}.preview-card{position:static;grid-row:1}.preview-stage{max-height:340px}}
+@media(max-width:720px){.layer-heading{grid-template-columns:1fr}.layer-tools{justify-content:flex-start}}
 @media(max-width:760px){.app-shell{grid-template-columns:86px minmax(0,1fr)}.sidebar{padding:12px 9px}.brand-header{height:62px}.nav-label,.sidebar-footer{display:none}.side-nav button{justify-content:center;padding:10px 5px;font-size:0}.nav-icon{width:21px;height:21px;flex-basis:21px}.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}}
 </style>
 </head>
@@ -73,6 +81,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
   <div class="nav-label">Settings</div>
   <nav class="side-nav" aria-label="Avatar Suite Settings">
     <button class="tab active" data-page="avatar" title="Avatar"><svg class="nav-icon" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c.7-5 3.4-7.5 8-7.5S19.3 16 20 21"/></svg><span>Avatar</span></button>
+    <button class="tab" data-page="layers" title="Layers"><svg class="nav-icon" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5 9-5Z"/><path d="m3 12 9 5 9-5M3 16l9 5 9-5"/></svg><span>Layers</span></button>
     <button class="tab" data-page="microphone" title="Microphone"><svg class="nav-icon" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="12" rx="4"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg><span>Microphone</span></button>
     <button class="tab" data-page="blink" title="Blink"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg><span>Blink</span></button>
     <button class="tab" data-page="effects" title="Effects"><svg class="nav-icon" viewBox="0 0 24 24"><path d="m12 2 1.5 5.2L18 9l-4.5 1.8L12 16l-1.5-5.2L6 9l4.5-1.8L12 2ZM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></svg><span>Effects</span></button>
@@ -93,6 +102,10 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <div><h1 id="page-title">Avatar</h1><p id="page-intro">Choose and size the images used by your avatar.</p></div>
     <button id="close">Close</button>
   </header>
+  <div class="preset-editor" id="preset-editor">
+    <div><strong>Editing: <span id="active-preset-name">Default Avatar</span></strong><div class="preset-editor-copy" id="preset-dirty-copy">Saved preset</div></div>
+    <div class="preset-editor-actions"><button id="revert-preset" disabled>Revert changes</button><button class="primary" id="update-preset" disabled>Update preset</button></div>
+  </div>
   <div class="settings-layout"><div class="page-column">
   <section class="panel page" data-page="avatar">
     <h2>Avatar</h2>
@@ -122,6 +135,11 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
           <div class="range-scale" data-range="avatar-scale"><button data-value="25">Pocket-sized</button><button data-value="75">Compact</button><button data-value="100">Just right</button><button data-value="175">Screen hog</button><button data-value="250">Absolute unit</button></div>
         </article>
       </div>
+  </section>
+  <section class="panel page" data-page="layers" hidden>
+    <div class="effect-heading"><div><h2>Layers</h2><p class="intro">Build the avatar from ordered transparent PNGs around the fixed Primary image.</p></div><button class="primary" id="add-layer">+ Add PNG layer</button></div>
+    <div class="layer-list" id="layer-list"><div class="layer-empty" id="layer-empty">No additional layers yet. Primary remains the centre of the composition.</div></div>
+    <p class="status" id="layer-limit" style="margin-top:14px">0 of 16 additional layers</p>
   </section>
   <section class="panel page" data-page="microphone" hidden>
     <h2>Microphone</h2>
@@ -228,6 +246,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 document.getElementById('close').onclick=()=>window.chrome.webview.postMessage('close-settings');
 const pageDetails={
   avatar:['Avatar','Choose and size the images used by your avatar.'],
+  layers:['Layers','Build and order the transparent PNG layers belonging to this preset.'],
   microphone:['Microphone','Choose the input device and tune when the avatar reacts.'],
   blink:['Blink','Configure automatic blinking for idle and reaction images.'],
   effects:['Effects','Build and order the movement and appearance effects applied to the avatar.'],
@@ -247,12 +266,76 @@ function showPage(name){
   const details=pageDetails[name]||pageDetails.avatar;
   document.getElementById('page-title').textContent=details[0];
   document.getElementById('page-intro').textContent=details[1];
+  document.getElementById('preset-editor').hidden=!['avatar','blink','effects','backgrounds','layers'].includes(name);
   const fullWidthPage=['general','feedback','updates','help'].includes(name);
   document.getElementById('preview-card').hidden=fullWidthPage;
   document.querySelector('.settings-layout').classList.toggle('tools-page',fullWidthPage);
   window.chrome.webview.postMessage(`page-changed\t${name}`);
 }
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>showPage(tab.dataset.page));
+const updatePresetButton=document.getElementById('update-preset');
+const revertPresetButton=document.getElementById('revert-preset');
+function setPresetState(name,dirty){
+  if(name)document.getElementById('active-preset-name').textContent=name;
+  document.getElementById('preset-dirty-copy').textContent=dirty?'Unsaved preset changes':'Saved preset';
+  updatePresetButton.disabled=!dirty;
+  revertPresetButton.disabled=!dirty;
+}
+updatePresetButton.onclick=()=>window.chrome.webview.postMessage('update-current-preset');
+revertPresetButton.onclick=()=>window.chrome.webview.postMessage('revert-current-preset');
+document.getElementById('add-layer').onclick=()=>window.chrome.webview.postMessage('add-layer');
+const layerList=document.getElementById('layer-list');
+let pendingLayers=[];
+let layerListInitialised=false;
+let knownLayerIds=new Set();
+const expandedLayerIds=new Set();
+const layerInputTimers=new Map();
+const layerInputLastSent=new Map();
+function sendLayerInput(key,deliver){
+  const now=performance.now();
+  const last=layerInputLastSent.get(key)||0;
+  const existing=layerInputTimers.get(key);
+  if(now-last>=50&&!existing){layerInputLastSent.set(key,now);deliver();return}
+  if(existing)existing.deliver=deliver;
+  else{
+    const state={deliver,timer:0};
+    state.timer=setTimeout(()=>{layerInputTimers.delete(key);layerInputLastSent.set(key,performance.now());state.deliver()},Math.max(0,50-(now-last)));
+    layerInputTimers.set(key,state);
+  }
+}
+function renderLayers(){
+  layerList.replaceChildren();
+  if(!pendingLayers.length){const empty=document.createElement('div');empty.className='layer-empty';empty.id='layer-empty';empty.textContent='No additional layers yet. Primary remains the centre of the composition.';layerList.append(empty)}
+  pendingLayers.forEach((layer,index)=>{
+    const card=document.createElement('article');card.className='card layer-card';
+    const heading=document.createElement('div');heading.className='layer-heading';
+    const title=document.createElement('div');title.className='layer-title';const name=document.createElement('h3');name.textContent=layer.name;const file=document.createElement('div');file.className='status';file.textContent=`${layer.purpose.charAt(0).toUpperCase()+layer.purpose.slice(1)} layer`;title.append(name,file);
+    const tools=document.createElement('div');tools.className='layer-tools';
+    [['up','▲'],['down','▼'],['visible',layer.visible?'Hide':'Show'],['side',layer.above?'Move behind':'Move in front'],['remove','Remove']].forEach(([action,label])=>{const button=document.createElement('button');button.textContent=label;button.disabled=(action==='up'&&index===0)||(action==='down'&&index===pendingLayers.length-1);button.onclick=()=>window.chrome.webview.postMessage(`layer-command\t${action}\t${layer.id}`);tools.append(button)});
+    const collapse=document.createElement('button');const expanded=expandedLayerIds.has(layer.id);collapse.textContent=expanded?'−':'+';collapse.title=expanded?'Collapse layer':'Expand layer';collapse.setAttribute('aria-label',collapse.title);collapse.setAttribute('aria-expanded',expanded?'true':'false');collapse.onclick=()=>{if(expanded)expandedLayerIds.delete(layer.id);else expandedLayerIds.add(layer.id);renderLayers()};tools.append(collapse);
+    heading.append(title,tools);card.append(heading);
+    const meta=document.createElement('div');meta.className='layer-meta';meta.innerHTML=`<span class="tag">${layer.above?'Above Primary':'Below Primary'}</span><span class="tag">${layer.visible?'Visible':'Hidden'}</span>${layer.tailAdded?'<span class="tag">1 layer effect</span>':''}`;card.append(meta);
+    const controls=document.createElement('div');controls.className='control-grid';
+    const send=(action,value)=>window.chrome.webview.postMessage(`layer-command\t${action}\t${layer.id}\t${String(value).replace(/[\t\r\n]/g,' ')}`);
+    const preview=(action,value)=>window.chrome.webview.postMessage(`layer-preview\t${action}\t${layer.id}\t${String(value).replace(/[\t\r\n]/g,' ')}`);
+    const field=(label,type,value,min,max,step,action)=>{const wrap=document.createElement('div');const caption=document.createElement('label');caption.textContent=label;const input=document.createElement('input');input.type=type;input.value=value;input.dataset.action=action;if(min!==null)input.min=min;if(max!==null)input.max=max;if(step!==null)input.step=step;input.style.width='100%';if(type==='number'){input.oninput=()=>{if(layer.scaleLinked&&(action==='scale-x'||action==='scale-y')){const other=card.querySelector(`[data-action="${action==='scale-x'?'scale-y':'scale-x'}"]`);if(other)other.value=input.value}sendLayerInput(`${layer.id}:${action}`,()=>preview(action,input.value))};input.onchange=()=>send(action,input.value)}else input.onchange=()=>send(action,input.value);wrap.append(caption,input);return wrap};
+    controls.append(field('Layer name','text',layer.name,null,null,null,'name'));
+    const purposeWrap=document.createElement('div');const purposeLabel=document.createElement('label');purposeLabel.textContent='Purpose';const purpose=document.createElement('select');[['generic','Generic'],['eyes','Eyes'],['mouth','Mouth'],['tail','Tail'],['accessory','Accessory'],['prop','Prop'],['effect','Effect']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;purpose.append(option)});purpose.value=layer.purpose;purpose.onchange=()=>send('purpose',purpose.value);purposeWrap.append(purposeLabel,purpose);controls.append(purposeWrap);
+    controls.append(field('Horizontal position (px; − left, + right)','number',layer.x,-4096,4096,1,'x'),field('Vertical position (px; − up, + down)','number',layer.y,-4096,4096,1,'y'));
+    controls.append(field('Horizontal rotation pivot (%)','number',layer.pivotX,0,100,1,'pivot-x'),field('Vertical rotation pivot (%)','number',layer.pivotY,0,100,1,'pivot-y'));
+    const scaleRow=document.createElement('div');scaleRow.className='scale-row';const horizontalScale=field('Horizontal scale (%)','number',layer.scaleX,1,1000,1,'scale-x');const verticalScale=field('Vertical scale (%)','number',layer.scaleY,1,1000,1,'scale-y');const scaleLink=document.createElement('button');scaleLink.type='button';scaleLink.className=`scale-link${layer.scaleLinked?' active':''}`;scaleLink.textContent='🔗';scaleLink.title=layer.scaleLinked?'Horizontal and vertical scale are linked':'Horizontal and vertical scale are independent';scaleLink.setAttribute('aria-label',scaleLink.title);scaleLink.setAttribute('aria-pressed',layer.scaleLinked?'true':'false');scaleLink.onclick=()=>{layer.scaleLinked=!layer.scaleLinked;scaleLink.classList.toggle('active',layer.scaleLinked);scaleLink.title=layer.scaleLinked?'Horizontal and vertical scale are linked':'Horizontal and vertical scale are independent';scaleLink.setAttribute('aria-label',scaleLink.title);scaleLink.setAttribute('aria-pressed',layer.scaleLinked?'true':'false');send('scale-link',layer.scaleLinked?'1':'0')};scaleRow.append(horizontalScale,scaleLink,verticalScale);controls.append(scaleRow);
+    controls.append(field('Rotation (tenths of a degree)','number',layer.rotation,-3600,3600,1,'rotation'),field('Opacity (%)','number',layer.opacity,0,100,1,'opacity'));
+    const inheritWrap=document.createElement('div');const inheritLabel=document.createElement('label');inheritLabel.style.margin='0';inheritLabel.title='Move and shade this layer with the assembled avatar’s whole-avatar effects.';const inherit=document.createElement('input');inherit.type='checkbox';inherit.checked=layer.inherit;inherit.onchange=()=>send('inherit',inherit.checked?'1':'0');inheritLabel.append(inherit,document.createTextNode(' Move with whole-avatar effects'));inheritWrap.append(inheritLabel);controls.append(inheritWrap);
+    const localEffects=document.createElement('details');localEffects.className='layer-effects';const localSummary=document.createElement('summary');localSummary.textContent=`Layer effects — ${layer.tailAdded?'1 configured':'none configured'}`;localEffects.append(localSummary);const localBody=document.createElement('div');localBody.className='layer-effects-body';
+    if(layer.tailAdded){const effectHeading=document.createElement('div');effectHeading.className='layer-effects-heading';const effectName=document.createElement('h4');effectName.textContent='Tail wag';const effectActions=document.createElement('div');effectActions.className='setting-actions';const enabledLabel=document.createElement('label');enabledLabel.style.margin='0';const enabled=document.createElement('input');enabled.type='checkbox';enabled.checked=layer.tailEnabled;enabled.onchange=()=>send('tail-enabled',enabled.checked?'1':'0');enabledLabel.append(enabled,document.createTextNode(' Enabled'));const removeTail=document.createElement('button');removeTail.textContent='Remove';removeTail.onclick=()=>send('tail-remove','');effectActions.append(enabledLabel,removeTail);effectHeading.append(effectName,effectActions);localBody.append(effectHeading);const tailControls=document.createElement('div');tailControls.className='control-grid';const pivotWrap=document.createElement('div');const pivotLabel=document.createElement('label');pivotLabel.textContent='Wag pivot';const pivot=document.createElement('select');[['0','Use layer rotation pivot'],['1','Top left'],['2','Top centre'],['3','Top right'],['4','Centre left'],['5','Centre'],['6','Centre right'],['7','Bottom left'],['8','Bottom centre'],['9','Bottom right']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;pivot.append(option)});pivot.value=layer.tailPivot;pivot.onchange=()=>send('tail-pivot',pivot.value);pivotWrap.append(pivotLabel,pivot);tailControls.append(pivotWrap,field('Wag angle (degrees)','number',layer.tailAngle,0,90,1,'tail-angle'),field('Cycle duration (ms)','number',layer.tailCycle,200,10000,50,'tail-cycle'),field('Reaction intensity boost (%)','number',layer.tailBoost,0,300,5,'tail-boost'));localBody.append(tailControls)}
+    else if(layer.purpose==='tail'){const addTail=document.createElement('button');addTail.className='primary';addTail.textContent='+ Add tail wag';addTail.onclick=()=>send('tail-add','');localBody.append(addTail)}
+    else{const guidance=document.createElement('p');guidance.className='status';guidance.textContent='Choose the Tail purpose to add the first specialised layer effect. More purpose-aware effects will use this same ordered stack.';localBody.append(guidance)}
+    localEffects.append(localBody);controls.append(localEffects);
+    controls.hidden=!expanded;card.append(controls);layerList.append(card);
+  });
+  document.getElementById('layer-limit').textContent=`${pendingLayers.length} of 16 additional layers`;
+  document.getElementById('add-layer').disabled=pendingLayers.length>=16;
+}
 document.getElementById('open-stream-suite').onclick=()=>window.chrome.webview.postMessage('open-stream-suite');
 const openWithStreamSuite=document.getElementById('open-with-stream-suite');
 openWithStreamSuite.onchange=()=>window.chrome.webview.postMessage(`open-with-stream-suite\t${openWithStreamSuite.checked?'1':'0'}`);
@@ -891,10 +974,26 @@ microphoneDevice.onchange=()=>{
 };
 window.chrome.webview.addEventListener('message',event=>{
   const message=String(event.data||'');
+  const fields=message.split('\t');
   const [type,value='']=message.split('\t',2);
   const status=document.getElementById('avatar-status');
   if(type==='navigate-page'){
     showPage(value);
+  }else if(type==='layer-list-reset'){
+    pendingLayers=[];
+  }else if(type==='layer-item'){
+    pendingLayers.push({id:fields[1],name:fields[2],file:fields[3],visible:fields[4]==='1',above:fields[5]==='1',purpose:fields[6],inherit:fields[7]==='1',x:fields[8],y:fields[9],pivotX:fields[10],pivotY:fields[11],scaleX:fields[12],scaleY:fields[13],rotation:fields[14],opacity:fields[15],scaleLinked:fields[16]!=='0',tailAdded:fields[17]==='1',tailEnabled:fields[18]!=='0',tailAngle:fields[19],tailCycle:fields[20],tailBoost:fields[21],tailPivot:fields[22]||'0'});
+  }else if(type==='layer-list-complete'){
+    const currentIds=new Set(pendingLayers.map(layer=>layer.id));
+    if(layerListInitialised)pendingLayers.forEach(layer=>{if(!knownLayerIds.has(layer.id))expandedLayerIds.add(layer.id)});
+    else layerListInitialised=true;
+    [...expandedLayerIds].forEach(id=>{if(!currentIds.has(id))expandedLayerIds.delete(id)});
+    knownLayerIds=currentIds;
+    renderLayers();
+  }else if(type==='preset-state'){
+    setPresetState(fields[1]||'Default Avatar',fields[2]==='1');
+  }else if(type==='preset-dirty'){
+    setPresetState('',value==='1');
   }else if(type==='stream-suite-state'){
     const states={
       ready:['Stream Suite installed','The registered Control Hub installation supports Avatar Suite companions.','Ready','When enabled, the Control Hub opens Avatar Suite as an independent companion application.'],

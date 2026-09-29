@@ -271,6 +271,24 @@ void initialiseWebView()
                                                 ShellExecuteW(g_settingsWindow, L"open",
                                                     L"https://github.com/Off-World-Live/obs-spout2-plugin/releases",
                                                     nullptr, nullptr, SW_SHOWNORMAL);
+                                            else if (wcscmp(message, L"update-current-preset") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsUpdatePresetMessage, 0, 0);
+                                            else if (wcscmp(message, L"revert-current-preset") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsRevertPresetMessage, 0, 0);
+                                            else if (wcscmp(message, L"add-layer") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsAddLayerMessage, 0,
+                                                             reinterpret_cast<LPARAM>(g_settingsWindow));
+                                            else if (wcsncmp(message, L"layer-command\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsLayerCommandMessage, 0,
+                                                             reinterpret_cast<LPARAM>(new std::wstring(message + 14)));
+                                            else if (wcsncmp(message, L"layer-preview\t", 14) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsLayerCommandMessage, 1,
+                                                             reinterpret_cast<LPARAM>(new std::wstring(message + 14)));
                                             else if (wcscmp(message, L"choose-avatar-png") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChoosePngMessage,
