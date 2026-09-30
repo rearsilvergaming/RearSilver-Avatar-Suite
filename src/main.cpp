@@ -60,6 +60,7 @@ std::atomic<unsigned> g_backgroundSolidColour{0xffffff};
 std::atomic<unsigned> g_backgroundChromaColour{0x00ff00};
 std::atomic<unsigned> g_backgroundFit{0};
 std::atomic<unsigned> g_avatarScalePercent{100};
+std::atomic<bool> g_avatarFlipHorizontal{false};
 std::atomic<unsigned> g_spoutStatus{0};
 std::atomic<UINT> g_clientWidth{960};
 std::atomic<UINT> g_clientHeight{720};
@@ -96,7 +97,7 @@ struct PendingImage {
 std::mutex g_pendingImageMutex;
 std::deque<PendingImage> g_pendingImages;
 std::mutex g_layerStateMutex;
-std::vector<layer_model::Layer> g_layers;
+layer_model::Composition g_composition;
 
 std::mutex g_primaryImageStateMutex;
 std::wstring g_primaryImagePath;
@@ -470,6 +471,7 @@ void sendAvatarTransformSettings()
 {
     postAvatarSettingsMessage(L"avatar-scale\t" +
                               std::to_wstring(g_avatarScalePercent.load()));
+    postAvatarSettingsMessage(g_avatarFlipHorizontal.load() ? L"avatar-flip\t1" : L"avatar-flip\t0");
 }
 
 void sendSpoutSettings()
@@ -865,10 +867,10 @@ bool decodePng(const wchar_t *path, PendingImage &decoded, UINT bundledTextureLi
 
 void reloadDraftLayers()
 {
-    std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
+    layer_model::Composition composition = layer_model::loadDraftComposition();
     {
         std::lock_guard<std::mutex> lock(g_layerStateMutex);
-        g_layers = layers;
+        g_composition = composition;
     }
     PendingImage clear;
     clear.slot = ImageSlot::Layer;
@@ -878,7 +880,7 @@ void reloadDraftLayers()
         std::lock_guard<std::mutex> lock(g_pendingImageMutex);
         g_pendingImages.push_back(std::move(clear));
     }
-    for (const layer_model::Layer &layer : layers) {
+    for (const layer_model::Layer &layer : composition.layers) {
         if (layer.imagePath.empty()) continue;
         try {
             PendingImage decoded;
@@ -964,6 +966,7 @@ void applyPresetDraftToRuntime()
     reloadDraftLayers();
 
     g_avatarScalePercent.store(number(L"AvatarScalePercent", 100, 25, 250));
+    g_avatarFlipHorizontal.store(flag(L"AvatarFlipHorizontal", false));
     g_reactionsEnabled.store(flag(L"ReactionsEnabled", true));
     g_blinkEnabled.store(flag(L"BlinkEnabled", true));
     g_blinkMinimumMs.store(number(L"BlinkMinimumMs", 3000, 250, 30000));
@@ -1084,9 +1087,9 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
 
 void sendLayerState()
 {
-    const std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
-    postAvatarSettingsMessage(L"layer-list-reset\t" + std::to_wstring(layers.size()));
-    for (const layer_model::Layer &layer : layers) {
+    const layer_model::Composition composition = layer_model::loadDraftComposition();
+    postAvatarSettingsMessage(L"layer-list-reset\t" + std::to_wstring(composition.layers.size()));
+    auto sendLayer = [](const layer_model::Layer &layer, const std::wstring &groupId) {
         postAvatarSettingsMessage(L"layer-item\t" + layer.id + L"\t" + layer.name + L"\t" +
                                   fileNameFromPath(layer.imagePath) + L"\t" +
                                   (layer.visible ? L"1" : L"0") + L"\t" +
@@ -1102,7 +1105,46 @@ void sendLayerState()
                                   std::to_wstring(layer.tailWagAngle) + L"\t" +
                                   std::to_wstring(layer.tailWagCycleMs) + L"\t" +
                                   std::to_wstring(layer.tailWagReactionBoost) + L"\t" +
-                                  std::to_wstring(layer.tailWagPivot));
+                                  std::to_wstring(layer.tailWagPivot) + L"\t" +
+                                  (layer.flipHorizontal ? L"1" : L"0") + L"\t" +
+                                  (layer.swayAdded ? L"1" : L"0") + L"\t" +
+                                  (layer.swayEnabled ? L"1" : L"0") + L"\t" +
+                                  std::to_wstring(layer.swayAngle) + L"\t" +
+                                  std::to_wstring(layer.swayCycleMs) + L"\t" +
+                                  std::to_wstring(layer.swayReactionBoost) + L"\t" +
+                                  std::to_wstring(layer.swayPivot) + L"\t" +
+                                  (layer.eyeMovementAdded ? L"1" : L"0") + L"\t" +
+                                  (layer.eyeMovementEnabled ? L"1" : L"0") + L"\t" +
+                                  std::to_wstring(layer.eyeRangeX) + L"\t" +
+                                  std::to_wstring(layer.eyeRangeY) + L"\t" +
+                                  std::to_wstring(layer.eyeCycleMs) + L"\t" +
+                                  std::to_wstring(layer.eyeActiveDuring) + L"\t" + groupId);
+    };
+    for (const layer_model::StackItem &item : composition.rootOrder) {
+        if (item.type == layer_model::StackItemType::Primary) {
+            postAvatarSettingsMessage(L"layer-primary");
+        } else if (item.type == layer_model::StackItemType::Layer) {
+            const auto layer = std::find_if(composition.layers.begin(), composition.layers.end(),
+                [&](const layer_model::Layer &candidate) { return candidate.id == item.id; });
+            if (layer != composition.layers.end()) sendLayer(*layer, L"");
+        } else if (item.type == layer_model::StackItemType::Group) {
+            const auto group = std::find_if(composition.groups.begin(), composition.groups.end(),
+                [&](const layer_model::Group &candidate) { return candidate.id == item.id; });
+            if (group == composition.groups.end()) continue;
+            postAvatarSettingsMessage(L"layer-group\t" + group->id + L"\t" + group->name + L"\t" +
+                (group->visible ? L"1" : L"0") + L"\t" + std::to_wstring(group->positionX) + L"\t" +
+                std::to_wstring(group->positionY) + L"\t" + std::to_wstring(group->scaleX) + L"\t" +
+                std::to_wstring(group->scaleY) + L"\t" + std::to_wstring(group->rotationTenths) + L"\t" +
+                std::to_wstring(group->opacity) + L"\t" + (group->scaleLinked ? L"1" : L"0") + L"\t" +
+                (group->flipHorizontal ? L"1" : L"0") + L"\t" +
+                (group->inheritAvatarEffects ? L"1" : L"0"));
+            for (const std::wstring &layerId : group->layerOrder) {
+                const auto layer = std::find_if(composition.layers.begin(), composition.layers.end(),
+                    [&](const layer_model::Layer &candidate) { return candidate.id == layerId; });
+                if (layer != composition.layers.end()) sendLayer(*layer, group->id);
+            }
+            postAvatarSettingsMessage(L"layer-group-complete\t" + group->id);
+        }
     }
     postAvatarSettingsMessage(L"layer-list-complete");
 }
@@ -1256,9 +1298,12 @@ void addLayerFromPicker(HWND owner)
             if (!decodePng(path, validation)) throw E_INVALIDARG;
             const std::wstring managed = preset_store::importPngAsset(path);
             if (managed.empty()) throw E_FAIL;
-            std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
-            layers.push_back(layer_model::makeLayer(fileNameFromPath(path), managed));
-            if (!layer_model::saveDraftLayers(layers)) throw E_FAIL;
+            layer_model::Composition composition = layer_model::loadDraftComposition();
+            layer_model::Layer layer = layer_model::makeLayer(fileNameFromPath(path), managed);
+            composition.layers.push_back(layer);
+            composition.rootOrder.insert(composition.rootOrder.begin(),
+                                         {layer_model::StackItemType::Layer, layer.id});
+            if (!layer_model::saveDraftComposition(composition)) throw E_FAIL;
             reloadDraftLayers();
             postAvatarSettingsMessage(L"preset-dirty\t1");
             sendLayerState();
@@ -1278,15 +1323,111 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
     const std::wstring action = command.substr(0, first);
     const std::wstring id = first == std::wstring::npos ? L"" : command.substr(first + 1, second - first - 1);
     const std::wstring value = second == std::wstring::npos ? L"" : command.substr(second + 1);
-    std::vector<layer_model::Layer> layers = layer_model::loadDraftLayers();
+    layer_model::Composition composition = layer_model::loadDraftComposition();
+    if (action == L"group-add") {
+        layer_model::Group group = layer_model::makeGroup(L"New group");
+        composition.groups.push_back(group);
+        composition.rootOrder.insert(composition.rootOrder.begin(),
+                                     {layer_model::StackItemType::Group, group.id});
+        if (layer_model::saveDraftComposition(composition)) {
+            { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = composition; }
+            postAvatarSettingsMessage(L"preset-dirty\t1");
+            sendLayerState();
+        }
+        return;
+    }
+    if (action.rfind(L"group-", 0) == 0) {
+        const auto group = std::find_if(composition.groups.begin(), composition.groups.end(),
+            [&](const layer_model::Group &candidate) { return candidate.id == id; });
+        if (group == composition.groups.end()) return;
+        const auto rootItem = std::find_if(composition.rootOrder.begin(), composition.rootOrder.end(),
+            [&](const layer_model::StackItem &item) {
+                return item.type == layer_model::StackItemType::Group && item.id == id;
+            });
+        if (action == L"group-remove") {
+            if (rootItem == composition.rootOrder.end()) return;
+            const size_t insertAt = static_cast<size_t>(rootItem - composition.rootOrder.begin());
+            composition.rootOrder.erase(rootItem);
+            size_t offset = 0;
+            for (const std::wstring &layerId : group->layerOrder)
+                composition.rootOrder.insert(composition.rootOrder.begin() + insertAt + offset++,
+                                             {layer_model::StackItemType::Layer, layerId});
+            composition.groups.erase(group);
+        } else if (action == L"group-up" && rootItem != composition.rootOrder.end() &&
+                   rootItem != composition.rootOrder.begin()) std::iter_swap(rootItem, rootItem - 1);
+        else if (action == L"group-down" && rootItem != composition.rootOrder.end() &&
+                 rootItem + 1 != composition.rootOrder.end()) std::iter_swap(rootItem, rootItem + 1);
+        else if (action == L"group-name") group->name = value.empty() ? group->name : value.substr(0, 80);
+        else if (action == L"group-visible") group->visible = !group->visible;
+        else if (action == L"group-x") group->positionX = std::clamp(_wtoi(value.c_str()), -4096, 4096);
+        else if (action == L"group-y") group->positionY = std::clamp(_wtoi(value.c_str()), -4096, 4096);
+        else if (action == L"group-scale-x") { group->scaleX = std::clamp(_wtoi(value.c_str()), 1, 1000); if (group->scaleLinked) group->scaleY = group->scaleX; }
+        else if (action == L"group-scale-y") { group->scaleY = std::clamp(_wtoi(value.c_str()), 1, 1000); if (group->scaleLinked) group->scaleX = group->scaleY; }
+        else if (action == L"group-scale-link") group->scaleLinked = value != L"0";
+        else if (action == L"group-rotation") group->rotationTenths = std::clamp(_wtoi(value.c_str()), -3600, 3600);
+        else if (action == L"group-opacity") group->opacity = std::clamp(_wtoi(value.c_str()), 0, 100);
+        else if (action == L"group-flip") group->flipHorizontal = value != L"0";
+        else if (action == L"group-inherit") group->inheritAvatarEffects = value != L"0";
+        else return;
+        if (previewOnly) {
+            std::lock_guard<std::mutex> lock(g_layerStateMutex);
+            g_composition = composition;
+            return;
+        }
+        if (layer_model::saveDraftComposition(composition)) {
+            { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = composition; }
+            postAvatarSettingsMessage(L"preset-dirty\t1");
+            sendLayerState();
+        }
+        return;
+    }
+    auto &layers = composition.layers;
     const auto found = std::find_if(layers.begin(), layers.end(), [&](const auto &layer) { return layer.id == id; });
     if (found == layers.end()) return;
+    const auto stackItem = std::find_if(composition.rootOrder.begin(), composition.rootOrder.end(),
+        [&](const layer_model::StackItem &item) {
+            return item.type == layer_model::StackItemType::Layer && item.id == id;
+        });
+    const auto parentGroup = std::find_if(composition.groups.begin(), composition.groups.end(),
+        [&](const layer_model::Group &group) {
+            return std::find(group.layerOrder.begin(), group.layerOrder.end(), id) != group.layerOrder.end();
+        });
     const bool removesTexture = action == L"remove";
-    if (action == L"remove") layers.erase(found);
+    if (action == L"remove") {
+        layers.erase(found);
+        if (parentGroup != composition.groups.end()) {
+            const auto child = std::find(parentGroup->layerOrder.begin(), parentGroup->layerOrder.end(), id);
+            if (child != parentGroup->layerOrder.end()) parentGroup->layerOrder.erase(child);
+        } else if (stackItem != composition.rootOrder.end()) composition.rootOrder.erase(stackItem);
+    }
     else if (action == L"visible") found->visible = !found->visible;
-    else if (action == L"side") found->abovePrimary = !found->abovePrimary;
-    else if (action == L"up" && found != layers.begin()) std::iter_swap(found, found - 1);
-    else if (action == L"down" && found + 1 != layers.end()) std::iter_swap(found, found + 1);
+    else if (action == L"up") {
+        if (parentGroup != composition.groups.end()) {
+            const auto child = std::find(parentGroup->layerOrder.begin(), parentGroup->layerOrder.end(), id);
+            if (child != parentGroup->layerOrder.begin()) std::iter_swap(child, child - 1);
+        } else if (stackItem != composition.rootOrder.end() && stackItem != composition.rootOrder.begin())
+            std::iter_swap(stackItem, stackItem - 1);
+    }
+    else if (action == L"down") {
+        if (parentGroup != composition.groups.end()) {
+            const auto child = std::find(parentGroup->layerOrder.begin(), parentGroup->layerOrder.end(), id);
+            if (child + 1 != parentGroup->layerOrder.end()) std::iter_swap(child, child + 1);
+        } else if (stackItem != composition.rootOrder.end() && stackItem + 1 != composition.rootOrder.end())
+            std::iter_swap(stackItem, stackItem + 1);
+    }
+    else if (action == L"parent") {
+        if (parentGroup != composition.groups.end()) parentGroup->layerOrder.erase(
+            std::find(parentGroup->layerOrder.begin(), parentGroup->layerOrder.end(), id));
+        else if (stackItem != composition.rootOrder.end()) composition.rootOrder.erase(stackItem);
+        if (value.empty()) composition.rootOrder.insert(composition.rootOrder.begin(),
+            {layer_model::StackItemType::Layer, id});
+        else {
+            const auto target = std::find_if(composition.groups.begin(), composition.groups.end(),
+                [&](const layer_model::Group &group) { return group.id == value; });
+            if (target == composition.groups.end()) return;
+            target->layerOrder.insert(target->layerOrder.begin(), id);
+        }
+    }
     else if (action == L"name") found->name = value.empty() ? found->name : value.substr(0, 80);
     else if (action == L"purpose") found->purpose = value;
     else if (action == L"inherit") found->inheritAvatarEffects = value != L"0";
@@ -1297,6 +1438,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
     else if (action == L"scale-x") { found->scaleX = std::clamp(_wtoi(value.c_str()), 1, 1000); if (found->scaleLinked) found->scaleY = found->scaleX; }
     else if (action == L"scale-y") { found->scaleY = std::clamp(_wtoi(value.c_str()), 1, 1000); if (found->scaleLinked) found->scaleX = found->scaleY; }
     else if (action == L"scale-link") found->scaleLinked = value != L"0";
+    else if (action == L"flip") found->flipHorizontal = value != L"0";
     else if (action == L"rotation") found->rotationTenths = std::clamp(_wtoi(value.c_str()), -3600, 3600);
     else if (action == L"opacity") found->opacity = std::clamp(_wtoi(value.c_str()), 0, 100);
     else if (action == L"tail-add") found->tailWagAdded = true;
@@ -1306,19 +1448,35 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
     else if (action == L"tail-cycle") found->tailWagCycleMs = std::clamp(_wtoi(value.c_str()), 200, 10000);
     else if (action == L"tail-boost") found->tailWagReactionBoost = std::clamp(_wtoi(value.c_str()), 0, 300);
     else if (action == L"tail-pivot") found->tailWagPivot = std::clamp(_wtoi(value.c_str()), 0, 9);
+    else if (action == L"sway-add") found->swayAdded = true;
+    else if (action == L"sway-remove") found->swayAdded = false;
+    else if (action == L"sway-enabled") found->swayEnabled = value != L"0";
+    else if (action == L"sway-angle") found->swayAngle = std::clamp(_wtoi(value.c_str()), 0, 45);
+    else if (action == L"sway-cycle") found->swayCycleMs = std::clamp(_wtoi(value.c_str()), 400, 20000);
+    else if (action == L"sway-boost") found->swayReactionBoost = std::clamp(_wtoi(value.c_str()), 0, 300);
+    else if (action == L"sway-pivot") found->swayPivot = std::clamp(_wtoi(value.c_str()), 0, 9);
+    else if (action == L"eye-add") found->eyeMovementAdded = true;
+    else if (action == L"eye-remove") found->eyeMovementAdded = false;
+    else if (action == L"eye-enabled") found->eyeMovementEnabled = value != L"0";
+    else if (action == L"eye-range-x") found->eyeRangeX = std::clamp(_wtoi(value.c_str()), 0, 512);
+    else if (action == L"eye-range-y") found->eyeRangeY = std::clamp(_wtoi(value.c_str()), 0, 512);
+    else if (action == L"eye-cycle") found->eyeCycleMs = std::clamp(_wtoi(value.c_str()), 500, 20000);
+    else if (action == L"eye-active") found->eyeActiveDuring = std::clamp(_wtoi(value.c_str()), 0, 2);
     else return;
     if (previewOnly) {
         std::lock_guard<std::mutex> lock(g_layerStateMutex);
-        g_layers = layers;
+        g_composition = composition;
         return;
     }
-    if (layer_model::saveDraftLayers(layers)) {
+    if (layer_model::saveDraftComposition(composition)) {
         if (removesTexture) reloadDraftLayers();
-        else { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_layers = layers; }
+        else { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = composition; }
         postAvatarSettingsMessage(L"preset-dirty\t1");
         if (action == L"remove" || action == L"up" || action == L"down" ||
-            action == L"visible" || action == L"side" || action == L"purpose" ||
-            action == L"tail-add" || action == L"tail-remove")
+            action == L"visible" || action == L"purpose" || action == L"parent" ||
+            action == L"tail-add" || action == L"tail-remove" ||
+            action == L"sway-add" || action == L"sway-remove" ||
+            action == L"eye-add" || action == L"eye-remove")
             sendLayerState();
     }
 }
@@ -1845,34 +2003,67 @@ public:
         currentBrightness_ = brightnessStart_ +
                              (brightnessTarget_ - brightnessStart_) * brightnessEase;
         setPixelBrightness(currentBrightness_);
-        std::vector<layer_model::Layer> layers;
+        layer_model::Composition composition;
         {
             std::lock_guard<std::mutex> lock(g_layerStateMutex);
-            layers = g_layers;
+            composition = g_composition;
         }
-        auto drawLayers = [&](bool abovePrimary) {
-            for (const layer_model::Layer &layer : layers) {
-                if (!layer.visible || layer.abovePrimary != abovePrimary) continue;
+        auto drawLayer = [&](const layer_model::Layer &layer, const layer_model::Group *group = nullptr) {
+                if (!layer.visible) return;
+                if (group && !group->visible) return;
                 const auto found = std::find_if(layerImages_.begin(), layerImages_.end(),
                     [&](const LayerTexture &item) { return item.id == layer.id; });
-                if (found == layerImages_.end()) continue;
-                const float localX = static_cast<float>(layer.scaleX) / 100.0f;
-                const float localY = static_cast<float>(layer.scaleY) / 100.0f;
-                const float effectScaleX = layer.inheritAvatarEffects && baseAvatarWidth > 0.0f
+                if (found == layerImages_.end()) return;
+                const float groupScaleX = group ? static_cast<float>(group->scaleX) / 100.0f : 1.0f;
+                const float groupScaleY = group ? static_cast<float>(group->scaleY) / 100.0f : 1.0f;
+                const float localX = static_cast<float>(layer.scaleX) / 100.0f * groupScaleX;
+                const float localY = static_cast<float>(layer.scaleY) / 100.0f * groupScaleY;
+                const bool inheritsRoot = layer.inheritAvatarEffects && (!group || group->inheritAvatarEffects);
+                const float effectScaleX = inheritsRoot && baseAvatarWidth > 0.0f
                                                ? avatarWidth / baseAvatarWidth : 1.0f;
-                const float effectScaleY = layer.inheritAvatarEffects && baseAvatarHeight > 0.0f
+                const float effectScaleY = inheritsRoot && baseAvatarHeight > 0.0f
                                                ? avatarHeight / baseAvatarHeight : 1.0f;
                 const float rootX = primaryScale * effectScaleX;
                 const float rootY = primaryScale * effectScaleY;
                 const float layerWidth = found->texture.width * rootX * localX;
                 const float layerHeight = found->texture.height * rootY * localY;
-                const float motionX = layer.inheritAvatarEffects ? floatX + shakeX : 0.0f;
-                const float motionY = layer.inheritAvatarEffects ? floatY + bounce + shakeY : 0.0f;
-                const float centreX = static_cast<float>(width_) * 0.5f + motionX + layer.positionX;
-                const float centreY = baseBottom - avatarHeight * 0.5f + motionY + layer.positionY;
-                const float rootRotation = layer.inheritAvatarEffects ? shakeRotation + currentTilt_ : 0.0f;
+                const float motionX = inheritsRoot ? floatX + shakeX : 0.0f;
+                const float motionY = inheritsRoot ? floatY + bounce + shakeY : 0.0f;
+                float eyeOffsetX = 0.0f;
+                float eyeOffsetY = 0.0f;
+                if (layer.eyeMovementAdded) {
+                    const bool configuredStateActive = layer.eyeActiveDuring == 2 ||
+                        (layer.eyeActiveDuring == 1 ? reactionActive : !reactionActive);
+                    if (found->lastEyeMotionUpdate == 0) found->lastEyeMotionUpdate = now;
+                    const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - found->lastEyeMotionUpdate, 100));
+                    found->lastEyeMotionUpdate = now;
+                    const float targetMix = layer.eyeMovementEnabled && configuredStateActive ? 1.0f : 0.0f;
+                    const float blend = std::min(1.0f, elapsed / 220.0f);
+                    found->eyeActivityMix += (targetMix - found->eyeActivityMix) * blend;
+                    const unsigned cycle = std::max(500, layer.eyeCycleMs);
+                    const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
+                    float unitX = std::sin(phase);
+                    // Integer-related axes meet at exactly the same coordinates
+                    // when the cycle wraps, avoiding a visible end-of-path jump.
+                    float unitY = std::sin(phase * 2.0f + 1.15f);
+                    const float magnitude = std::sqrt(unitX * unitX + unitY * unitY);
+                    if (magnitude > 1.0f) { unitX /= magnitude; unitY /= magnitude; }
+                    eyeOffsetX = unitX * static_cast<float>(layer.eyeRangeX) * found->eyeActivityMix;
+                    eyeOffsetY = unitY * static_cast<float>(layer.eyeRangeY) * found->eyeActivityMix;
+                }
+                const float centreX = static_cast<float>(width_) * 0.5f + motionX +
+                    (group ? group->positionX : 0) + (layer.positionX + eyeOffsetX) * groupScaleX;
+                const float centreY = baseBottom - avatarHeight * 0.5f + motionY +
+                    (group ? group->positionY : 0) + (layer.positionY + eyeOffsetY) * groupScaleY;
+                const float rootRotation = inheritsRoot ? shakeRotation + currentTilt_ : 0.0f;
+                const float groupRotation = group ? static_cast<float>(group->rotationTenths) * 0.001745329252f : 0.0f;
+                const float groupPivotX = static_cast<float>(width_) * 0.5f + motionX +
+                    (group ? group->positionX : 0);
+                const float groupPivotY = baseBottom - avatarHeight * 0.5f + motionY +
+                    (group ? group->positionY : 0);
                 const float localRotation = static_cast<float>(layer.rotationTenths) * 0.001745329252f;
-                float tailWagRotation = 0.0f;
+                float localEffectRotation = 0.0f;
+                int localEffectPivot = 0;
                 if (layer.tailWagAdded && layer.tailWagEnabled) {
                     const unsigned cycle = std::max(200, layer.tailWagCycleMs);
                     const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
@@ -1884,32 +2075,69 @@ public:
                     found->reactionMix += (targetMix - found->reactionMix) * blend;
                     const float reactionMultiplier = 1.0f + found->reactionMix *
                         static_cast<float>(layer.tailWagReactionBoost) / 100.0f;
-                    tailWagRotation = std::sin(phase) * static_cast<float>(layer.tailWagAngle) *
-                                      reactionMultiplier * 0.0174532925199f;
+                    localEffectRotation = std::sin(phase) * static_cast<float>(layer.tailWagAngle) *
+                                          reactionMultiplier * 0.0174532925199f;
+                    localEffectPivot = layer.tailWagPivot;
+                } else if (layer.swayAdded && layer.swayEnabled) {
+                    const unsigned cycle = std::max(400, layer.swayCycleMs);
+                    const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
+                    if (found->lastReactionMixUpdate == 0) found->lastReactionMixUpdate = now;
+                    const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - found->lastReactionMixUpdate, 100));
+                    found->lastReactionMixUpdate = now;
+                    const float targetMix = reactionActive ? 1.0f : 0.0f;
+                    const float blend = std::min(1.0f, elapsed / 240.0f);
+                    found->reactionMix += (targetMix - found->reactionMix) * blend;
+                    const float reactionMultiplier = 1.0f + found->reactionMix *
+                        static_cast<float>(layer.swayReactionBoost) / 100.0f;
+                    localEffectRotation = std::sin(phase) * static_cast<float>(layer.swayAngle) *
+                                          reactionMultiplier * 0.0174532925199f;
+                    localEffectPivot = layer.swayPivot;
                 }
                 const float pivotU = static_cast<float>(layer.pivotX) / 100.0f;
                 const float pivotV = static_cast<float>(layer.pivotY) / 100.0f;
                 static constexpr float anchorU[] = {0.0f,0.0f,0.5f,1.0f,0.0f,0.5f,1.0f,0.0f,0.5f,1.0f};
                 static constexpr float anchorV[] = {0.0f,0.0f,0.0f,0.0f,0.5f,0.5f,0.5f,1.0f,1.0f,1.0f};
-                const int wagPivot = std::clamp(layer.tailWagPivot, 0, 9);
-                const float wagPivotU = wagPivot == 0 ? pivotU : anchorU[wagPivot];
-                const float wagPivotV = wagPivot == 0 ? pivotV : anchorV[wagPivot];
+                localEffectPivot = std::clamp(localEffectPivot, 0, 9);
+                const float effectPivotU = localEffectPivot == 0 ? pivotU : anchorU[localEffectPivot];
+                const float effectPivotV = localEffectPivot == 0 ? pivotV : anchorV[localEffectPivot];
                 const float avatarRootPivotX = static_cast<float>(width_) * 0.5f + floatX + shakeX;
                 const float avatarRootPivotY = baseBottom + floatY + bounce + shakeY;
-                setPixelAppearance(layer.inheritAvatarEffects ? currentBrightness_ : 1.0f,
-                                   static_cast<float>(layer.opacity) / 100.0f);
+                const float groupOpacity = group ? static_cast<float>(group->opacity) / 100.0f : 1.0f;
+                setPixelAppearance(inheritsRoot ? currentBrightness_ : 1.0f,
+                                   static_cast<float>(layer.opacity) / 100.0f * groupOpacity);
                 draw(found->texture, centreX - layerWidth * 0.5f, centreY - layerHeight * 0.5f,
                      layerWidth, layerHeight, localRotation, pivotU, pivotV,
-                     tailWagRotation, wagPivotU, wagPivotV, rootRotation,
-                     avatarRootPivotX, avatarRootPivotY);
-            }
+                     localEffectRotation, effectPivotU, effectPivotV, rootRotation,
+                     avatarRootPivotX, avatarRootPivotY, layer.flipHorizontal,
+                     g_avatarFlipHorizontal.load(), groupRotation, groupPivotX,
+                     groupPivotY, group && group->flipHorizontal);
         };
-        drawLayers(false);
-        setPixelBrightness(currentBrightness_);
-        draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f + floatX + shakeX,
-             baseBottom - avatarHeight + floatY + bounce + shakeY, avatarWidth,
-             avatarHeight, shakeRotation + currentTilt_);
-        drawLayers(true);
+        for (auto item = composition.rootOrder.rbegin(); item != composition.rootOrder.rend(); ++item) {
+            if (item->type == layer_model::StackItemType::Primary) {
+                setPixelBrightness(currentBrightness_);
+                draw(*activeAvatar, (static_cast<float>(width_) - avatarWidth) * 0.5f + floatX + shakeX,
+                     baseBottom - avatarHeight + floatY + bounce + shakeY, avatarWidth,
+                     avatarHeight, shakeRotation + currentTilt_, 0.5f, 1.0f,
+                     0.0f, 0.5f, 0.5f, 0.0f,
+                     static_cast<float>(width_) * 0.5f + floatX + shakeX,
+                     baseBottom + floatY + bounce + shakeY, false, g_avatarFlipHorizontal.load());
+                continue;
+            }
+            if (item->type == layer_model::StackItemType::Layer) {
+                const auto layer = std::find_if(composition.layers.begin(), composition.layers.end(),
+                    [&](const layer_model::Layer &candidate) { return candidate.id == item->id; });
+                if (layer != composition.layers.end()) drawLayer(*layer);
+            } else if (item->type == layer_model::StackItemType::Group) {
+                const auto group = std::find_if(composition.groups.begin(), composition.groups.end(),
+                    [&](const layer_model::Group &candidate) { return candidate.id == item->id; });
+                if (group == composition.groups.end()) continue;
+                for (auto child = group->layerOrder.rbegin(); child != group->layerOrder.rend(); ++child) {
+                    const auto layer = std::find_if(composition.layers.begin(), composition.layers.end(),
+                        [&](const layer_model::Layer &candidate) { return candidate.id == *child; });
+                    if (layer != composition.layers.end()) drawLayer(*layer, &*group);
+                }
+            }
+        }
         setPixelBrightness(1.0f);
 
         const bool overlayVisible = g_applicationActive.load() && !g_dialogOpen.load() &&
@@ -2190,7 +2418,10 @@ private:
               float rotation = 0.0f, float pivotU = 0.5f, float pivotV = 1.0f,
               float secondaryRotation = 0.0f, float secondaryPivotU = 0.5f,
               float secondaryPivotV = 0.5f, float rootRotation = 0.0f,
-              float rootPivotX = 0.0f, float rootPivotY = 0.0f)
+              float rootPivotX = 0.0f, float rootPivotY = 0.0f,
+              bool flipTextureHorizontal = false, bool mirrorRootHorizontal = false,
+              float groupRotation = 0.0f, float groupPivotX = 0.0f,
+              float groupPivotY = 0.0f, bool mirrorGroupHorizontal = false)
     {
         if (!texture.view || width <= 0 || height <= 0)
             return;
@@ -2221,13 +2452,27 @@ private:
         auto composeRotations = [&](float px, float py) {
             const auto local = rotateSecondary({px, py});
             const auto layerPoint = rotate(local.first, local.second);
-            if (std::abs(rootRotation) < 0.000001f) return layerPoint;
-            const float cosine = std::cos(rootRotation);
-            const float sine = std::sin(rootRotation);
-            const float dx = layerPoint.first - rootPivotX;
-            const float dy = layerPoint.second - rootPivotY;
-            return std::pair<float,float>{rootPivotX + dx * cosine - dy * sine,
-                                          rootPivotY + dx * sine + dy * cosine};
+            std::pair<float,float> groupPoint = layerPoint;
+            if (std::abs(groupRotation) >= 0.000001f) {
+                const float cosine = std::cos(groupRotation);
+                const float sine = std::sin(groupRotation);
+                const float dx = layerPoint.first - groupPivotX;
+                const float dy = layerPoint.second - groupPivotY;
+                groupPoint = {groupPivotX + dx * cosine - dy * sine,
+                              groupPivotY + dx * sine + dy * cosine};
+            }
+            if (mirrorGroupHorizontal) groupPoint.first = groupPivotX * 2.0f - groupPoint.first;
+            std::pair<float,float> rootPoint = groupPoint;
+            if (std::abs(rootRotation) >= 0.000001f) {
+                const float cosine = std::cos(rootRotation);
+                const float sine = std::sin(rootRotation);
+                const float dx = groupPoint.first - rootPivotX;
+                const float dy = groupPoint.second - rootPivotY;
+                rootPoint = {rootPivotX + dx * cosine - dy * sine,
+                             rootPivotY + dx * sine + dy * cosine};
+            }
+            if (mirrorRootHorizontal) rootPoint.first = rootPivotX * 2.0f - rootPoint.first;
+            return rootPoint;
         };
         const auto topLeftPixel = composeRotations(x, y);
         const auto topRightPixel = composeRotations(x + width, y);
@@ -2237,11 +2482,27 @@ private:
         const auto topRight = toClip(topRightPixel.first, topRightPixel.second);
         const auto bottomLeft = toClip(bottomLeftPixel.first, bottomLeftPixel.second);
         const auto bottomRight = toClip(bottomRightPixel.first, bottomRightPixel.second);
-        const Vertex vertices[] = {
-            {topLeft.first, topLeft.second, 0, 0}, {topRight.first, topRight.second, 1, 0},
-            {bottomLeft.first, bottomLeft.second, 0, 1},
-            {bottomLeft.first, bottomLeft.second, 0, 1}, {topRight.first, topRight.second, 1, 0},
-            {bottomRight.first, bottomRight.second, 1, 1}};
+        const float leftU = flipTextureHorizontal ? 1.0f : 0.0f;
+        const float rightU = flipTextureHorizontal ? 0.0f : 1.0f;
+        Vertex vertices[6];
+        if (mirrorRootHorizontal != mirrorGroupHorizontal) {
+            // Mirroring the completed geometry reverses its winding. Submit the
+            // logical corners in the opposite order so the front face remains
+            // visible with Direct3D's normal back-face culling enabled.
+            vertices[0] = {topLeft.first, topLeft.second, leftU, 0};
+            vertices[1] = {bottomLeft.first, bottomLeft.second, leftU, 1};
+            vertices[2] = {topRight.first, topRight.second, rightU, 0};
+            vertices[3] = {bottomLeft.first, bottomLeft.second, leftU, 1};
+            vertices[4] = {bottomRight.first, bottomRight.second, rightU, 1};
+            vertices[5] = {topRight.first, topRight.second, rightU, 0};
+        } else {
+            vertices[0] = {topLeft.first, topLeft.second, leftU, 0};
+            vertices[1] = {topRight.first, topRight.second, rightU, 0};
+            vertices[2] = {bottomLeft.first, bottomLeft.second, leftU, 1};
+            vertices[3] = {bottomLeft.first, bottomLeft.second, leftU, 1};
+            vertices[4] = {topRight.first, topRight.second, rightU, 0};
+            vertices[5] = {bottomRight.first, bottomRight.second, rightU, 1};
+        }
         D3D11_MAPPED_SUBRESOURCE mapped{};
         check(context_->Map(vertexBuffer_.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped));
         memcpy(mapped.pData, vertices, sizeof(vertices));
@@ -2353,6 +2614,8 @@ private:
         TextureAsset texture;
         float reactionMix = 0.0f;
         ULONGLONG lastReactionMixUpdate = 0;
+        float eyeActivityMix = 0.0f;
+        ULONGLONG lastEyeMotionUpdate = 0;
     };
     std::vector<LayerTexture> layerImages_;
     bool backgroundImageLoaded_ = false;
@@ -2842,6 +3105,10 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             std::clamp<unsigned>(static_cast<unsigned>(wParam), 25, 250));
         saveSetting(L"AvatarScalePercent", std::to_wstring(g_avatarScalePercent.load()));
         sendAvatarTransformSettings();
+        return 0;
+    case kAvatarSettingsFlipMessage:
+        g_avatarFlipHorizontal.store(wParam != FALSE);
+        saveSetting(L"AvatarFlipHorizontal", g_avatarFlipHorizontal.load() ? L"1" : L"0");
         return 0;
     case kAvatarSettingsSelectMicrophoneMessage: {
         std::unique_ptr<std::wstring> selected(reinterpret_cast<std::wstring *>(lParam));

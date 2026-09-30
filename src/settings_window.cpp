@@ -311,6 +311,10 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsScaleMessage,
                                                              wcstoul(message + 13, nullptr, 10), 0);
+                                            else if (wcsncmp(message, L"avatar-flip\t", 12) == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsFlipMessage,
+                                                             wcscmp(message + 12, L"1") == 0, 0);
                                             else if (wcscmp(message, L"choose-reaction-png") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChooseReactionPngMessage,

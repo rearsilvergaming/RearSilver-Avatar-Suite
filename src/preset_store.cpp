@@ -18,11 +18,11 @@ namespace {
 
 constexpr wchar_t kDefaultPresetId[] = L"default";
 constexpr wchar_t kDefaultPresetName[] = L"Default Avatar";
-constexpr std::array<std::wstring_view, 52> kPresetKeys{
+constexpr std::array<std::wstring_view, 55> kPresetKeys{
     L"PrimaryImage", L"ReactionImage", L"PrimaryBlinkImage", L"ReactionBlinkImage",
     L"PrimaryImageDisplayName", L"ReactionImageDisplayName", L"PrimaryBlinkImageDisplayName",
     L"ReactionBlinkImageDisplayName", L"BackgroundImageDisplayName",
-    L"AvatarScalePercent", L"BlinkEnabled", L"BlinkMinimumMs", L"BlinkMaximumMs",
+    L"AvatarScalePercent", L"AvatarFlipHorizontal", L"BlinkEnabled", L"BlinkMinimumMs", L"BlinkMaximumMs",
     L"BlinkDurationMs", L"EffectStack", L"BounceEnabled", L"BounceHeightPixels",
     L"BounceDurationMs", L"BreathingEnabled", L"BreathingMode", L"BreathingIdleAmount",
     L"BreathingReactionAmount", L"BreathingCycleMs", L"SquashEnabled", L"SquashIntensity",
@@ -31,7 +31,7 @@ constexpr std::array<std::wstring_view, 52> kPresetKeys{
     L"BrightnessReaction", L"BrightnessTransitionMs", L"FloatEnabled", L"FloatMode",
     L"FloatHeightPixels", L"FloatCycleMs", L"FloatDirection", L"FloatDriftPixels",
     L"TiltEnabled", L"TiltAngleDegrees", L"TiltDirection", L"TiltTransitionMs",
-    L"LayerCount", L"LayerOrder", L"BackgroundImage", L"BackgroundFit",
+    L"LayerCount", L"LayerOrder", L"CompositionOrder", L"GroupOrder", L"BackgroundImage", L"BackgroundFit",
     L"FixedBackgroundMode", L"WindowBackgroundMode", L"ReactionsEnabled"
 };
 
@@ -522,7 +522,7 @@ bool isPresetScopedKey(const wchar_t *key)
 {
     if (!key) return false;
     return std::find(kPresetKeys.begin(), kPresetKeys.end(), std::wstring_view(key)) != kPresetKeys.end() ||
-           wcsncmp(key, L"Layer.", 6) == 0;
+           wcsncmp(key, L"Layer.", 6) == 0 || wcsncmp(key, L"Group.", 6) == 0;
 }
 std::wstring importPngAsset(const std::wstring &sourcePath)
 {
