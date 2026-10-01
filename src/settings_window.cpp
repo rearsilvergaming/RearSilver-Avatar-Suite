@@ -296,6 +296,9 @@ void initialiseWebView()
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsPresetCommandMessage, 0,
                                                              reinterpret_cast<LPARAM>(new std::wstring(message + 15)));
+                                            else if (wcscmp(message, L"websocket-state-request") == 0 &&
+                                                     g_ownerWindow && IsWindow(g_ownerWindow))
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsWebSocketStateMessage, 0, 0);
                                             else if (wcscmp(message, L"choose-avatar-png") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsChoosePngMessage,
@@ -570,7 +573,9 @@ void initialiseWebView()
                                     }).Get(), &token);
                             resizeWebView();
                             g_controller->put_IsVisible(TRUE);
-                            return g_webView->Navigate(L"https://app.rearsilver-avatar.test/avatar-settings.html");
+                            const std::wstring settingsUrl = L"https://app.rearsilver-avatar.test/avatar-settings.html?v=" +
+                                                             std::to_wstring(GetTickCount64());
+                            return g_webView->Navigate(settingsUrl.c_str());
                         }).Get());
             }).Get());
 }

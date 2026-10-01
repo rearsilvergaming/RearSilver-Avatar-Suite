@@ -72,6 +72,7 @@ constexpr UINT kAvatarSettingsAddLayerMessage = WM_APP + 79;
 constexpr UINT kAvatarSettingsLayerCommandMessage = WM_APP + 80;
 constexpr UINT kAvatarSettingsPresetCommandMessage = WM_APP + 81;
 constexpr UINT kAvatarSettingsFlipMessage = WM_APP + 82;
+constexpr UINT kAvatarSettingsWebSocketStateMessage = WM_APP + 83;
 
 bool showAvatarSettingsWindow(HWND owner, const std::wstring &page = L"");
 bool isAvatarSettingsWindowVisible();

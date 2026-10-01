@@ -16,10 +16,12 @@
 #include "layer_model.h"
 #include "preset_store.h"
 #include "resource.h"
+#include "websocket_server.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <cctype>
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
@@ -44,11 +46,15 @@ constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
 constexpr UINT kImageUploadSuccessMessage = WM_APP + 3;
 constexpr UINT kBlinkStateMessage = WM_APP + 4;
 constexpr UINT kSpoutStatusChangedMessage = WM_APP + 5;
+constexpr UINT kWebSocketCommandMessage = WM_APP + 6;
 constexpr UINT kOutputWidth = 1920;
 constexpr UINT kOutputHeight = 1080;
 constexpr UINT kOutputUiDpi = 192;
 
 HWND g_mainWindow = nullptr;
+std::unique_ptr<WebSocketServer> g_webSocketServer;
+std::mutex g_webSocketStateMutex;
+std::wstring g_webSocketLastAction;
 std::atomic<bool> g_running{false};
 std::atomic<unsigned long long> g_presetGeneration{1};
 std::atomic<bool> g_applicationActive{true};
@@ -72,6 +78,89 @@ LONG_PTR g_windowedStyle = WS_OVERLAPPEDWINDOW;
 
 std::mutex g_logMutex;
 HANDLE g_logFile = INVALID_HANDLE_VALUE;
+
+struct WebSocketCommandRequest {
+    std::string payload;
+    std::string response;
+};
+
+std::wstring fromUtf8(const std::string &value)
+{
+    if (value.empty()) return {};
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                          static_cast<int>(value.size()), nullptr, 0);
+    if (count <= 0) return {};
+    std::wstring result(static_cast<size_t>(count), L'\0');
+    MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                        static_cast<int>(value.size()), result.data(), count);
+    return result;
+}
+
+std::string jsonStringValue(const std::string &json, const std::string &key)
+{
+    const std::string marker = "\"" + key + "\"";
+    size_t at = json.find(marker);
+    if (at == std::string::npos) return {};
+    at = json.find(':', at + marker.size());
+    if (at == std::string::npos) return {};
+    at = json.find('"', at + 1);
+    if (at == std::string::npos) return {};
+    std::string result;
+    for (++at; at < json.size(); ++at) {
+        const char character = json[at];
+        if (character == '"') return result;
+        if (character == '\\' && at + 1 < json.size()) {
+            const char escaped = json[++at];
+            if (escaped == '"' || escaped == '\\' || escaped == '/') result.push_back(escaped);
+            else if (escaped == 'n') result.push_back('\n');
+            else if (escaped == 'r') result.push_back('\r');
+            else if (escaped == 't') result.push_back('\t');
+            else return {};
+        } else result.push_back(character);
+    }
+    return {};
+}
+
+bool jsonBooleanValue(const std::string &json, const std::string &key, bool &value)
+{
+    const std::string marker = "\"" + key + "\"";
+    size_t at = json.find(marker);
+    if (at == std::string::npos || (at = json.find(':', at + marker.size())) == std::string::npos)
+        return false;
+    ++at;
+    while (at < json.size() && std::isspace(static_cast<unsigned char>(json[at]))) ++at;
+    if (json.compare(at, 4, "true") == 0) { value = true; return true; }
+    if (json.compare(at, 5, "false") == 0) { value = false; return true; }
+    return false;
+}
+
+std::vector<std::string> jsonObjectArray(const std::string &json, const std::string &key)
+{
+    std::vector<std::string> result;
+    const std::string marker = "\"" + key + "\"";
+    size_t at = json.find(marker);
+    if (at == std::string::npos || (at = json.find('[', at + marker.size())) == std::string::npos)
+        return result;
+    bool quoted = false, escaped = false;
+    int depth = 0;
+    size_t start = std::string::npos;
+    for (++at; at < json.size(); ++at) {
+        const char character = json[at];
+        if (quoted) {
+            if (escaped) escaped = false;
+            else if (character == '\\') escaped = true;
+            else if (character == '"') quoted = false;
+            continue;
+        }
+        if (character == '"') { quoted = true; continue; }
+        if (character == '{') { if (depth++ == 0) start = at; }
+        else if (character == '}' && depth > 0 && --depth == 0 && start != std::string::npos) {
+            result.push_back(json.substr(start, at - start + 1));
+            start = std::string::npos;
+        } else if (character == ']' && depth == 0) break;
+    }
+    return result;
+}
 
 enum class ImageSlot : WPARAM {
     Primary = 0,
@@ -1205,6 +1294,20 @@ void sendPresetState()
                                   (preset.active ? L"1" : L"0") + L"\t" +
                                   (preset.dirty ? L"1" : L"0"));
     postAvatarSettingsMessage(L"preset-list-complete");
+}
+
+void sendWebSocketState()
+{
+    const bool listening = g_webSocketServer && g_webSocketServer->running();
+    const unsigned clients = listening ? g_webSocketServer->connectedClients() : 0;
+    const unsigned long long messages = listening ? g_webSocketServer->messagesReceived() : 0;
+    std::wstring lastAction;
+    {
+        std::lock_guard<std::mutex> lock(g_webSocketStateMutex);
+        lastAction = g_webSocketLastAction;
+    }
+    postAvatarSettingsMessage(L"websocket-state\t" + std::wstring(listening ? L"1" : L"0") + L"\t" +
+                              std::to_wstring(clients) + L"\t" + std::to_wstring(messages) + L"\t" + lastAction);
 }
 
 std::vector<std::wstring> splitPresetCommand(const std::wstring &command)
@@ -2812,7 +2915,6 @@ private:
         drawRect(presetsIcon_, ui.presets);
         drawRect(g_reactionsEnabled.load() ? reactionsOnIcon_ : reactionsOffIcon_, ui.reactions);
         drawRect(websocketIcon_, ui.websocket);
-        drawRect(disabledOverlay_, ui.websocket);
         drawRect(backgroundsIcon_, ui.backgrounds);
         drawRect(toolsIcon_, ui.tools);
         drawRect(settingsIcon_, ui.settings);
@@ -2954,6 +3056,10 @@ void handlePointerRelease(HWND window, float x, float y)
     }
     if (ui.presets.contains(outputX, outputY)) {
         showAvatarSettingsWindow(window, L"presets");
+        return;
+    }
+    if (ui.websocket.contains(outputX, outputY)) {
+        showAvatarSettingsWindow(window, L"websocket");
         return;
     }
     if (ui.backgrounds.contains(outputX, outputY)) {
@@ -3132,6 +3238,130 @@ void constrainWindowToOutputAspect(HWND window, WPARAM edge, RECT &bounds)
 LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
+    case kWebSocketCommandMessage: {
+        auto *request = reinterpret_cast<WebSocketCommandRequest *>(lParam);
+        if (!request) return 0;
+        const std::string action = jsonStringValue(request->payload, "action");
+        {
+            std::lock_guard<std::mutex> lock(g_webSocketStateMutex);
+            g_webSocketLastAction = fromUtf8(action);
+        }
+        if (action == "server.status") {
+            request->response = "{\"ok\":true,\"action\":\"server.status\",\"version\":1}";
+            return 0;
+        }
+        if (action == "sequence.run") {
+            const auto steps = jsonObjectArray(request->payload, "steps");
+            if (steps.empty() || steps.size() > 32) {
+                request->response = "{\"ok\":false,\"error\":\"A sequence requires between 1 and 32 steps\"}";
+                return 0;
+            }
+            layer_model::Composition next;
+            { std::lock_guard<std::mutex> lock(g_layerStateMutex); next = g_composition; }
+            std::vector<std::pair<std::string, bool>> primaryEffectChanges;
+            bool primaryEffectsChanged = false;
+            auto applyPending = [&] {
+                { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = next; }
+                for (const auto &[effect, enabled] : primaryEffectChanges) {
+                    if (effect == "bounce") g_bounceEnabled.store(enabled);
+                    else if (effect == "breathing") g_breathingEnabled.store(enabled);
+                    else if (effect == "squash") g_squashEnabled.store(enabled);
+                    else if (effect == "shake") g_shakeEnabled.store(enabled);
+                    else if (effect == "brightness") g_brightnessEnabled.store(enabled);
+                    else if (effect == "float") g_floatEnabled.store(enabled);
+                    else if (effect == "tilt") g_tiltEnabled.store(enabled);
+                }
+                primaryEffectsChanged = primaryEffectsChanged || !primaryEffectChanges.empty();
+                primaryEffectChanges.clear();
+            };
+            for (size_t index = 0; index < steps.size(); ++index) {
+                const std::string stepAction = jsonStringValue(steps[index], "action");
+                if (stepAction == "preset.activate") {
+                    const std::wstring presetId = fromUtf8(jsonStringValue(steps[index], "presetId"));
+                    bool exists = false;
+                    for (const auto &preset : preset_store::listPresets())
+                        if (preset.id == presetId) { exists = true; break; }
+                    if (!exists) {
+                        request->response = "{\"ok\":false,\"error\":\"Preset in step " + std::to_string(index + 1) + " was not found\"}";
+                        return 0;
+                    }
+                    applyPending();
+                    if (!preset_store::selectPreset(presetId) || !preset_store::revertActivePreset()) {
+                        request->response = "{\"ok\":false,\"error\":\"Preset in step " + std::to_string(index + 1) + " could not be activated\"}";
+                        return 0;
+                    }
+                    ++g_presetGeneration;
+                    applyPresetDraftToRuntime();
+                    { std::lock_guard<std::mutex> lock(g_layerStateMutex); next = g_composition; }
+                    continue;
+                }
+                const std::wstring targetId = fromUtf8(jsonStringValue(steps[index], "targetId"));
+                bool enabled = false;
+                if (!jsonBooleanValue(steps[index], "enabled", enabled)) {
+                    request->response = "{\"ok\":false,\"error\":\"Step " + std::to_string(index + 1) + " requires enabled true or false\"}";
+                    return 0;
+                }
+                bool found = false;
+                if (stepAction == "layer.visibility") {
+                    for (auto &layer : next.layers) if (layer.id == targetId) { layer.visible = enabled; found = true; break; }
+                } else if (stepAction == "group.visibility") {
+                    for (auto &group : next.groups) if (group.id == targetId) { group.visible = enabled; found = true; break; }
+                } else if (stepAction == "effect.enabled") {
+                    const std::wstring effectId = fromUtf8(jsonStringValue(steps[index], "effectId"));
+                    if (targetId == L"primary") {
+                        const std::string primaryEffect = jsonStringValue(steps[index], "effectId");
+                        const bool exists = (primaryEffect == "bounce" && g_bounceAdded.load()) ||
+                            (primaryEffect == "breathing" && g_breathingAdded.load()) ||
+                            (primaryEffect == "squash" && g_squashAdded.load()) ||
+                            (primaryEffect == "shake" && g_shakeAdded.load()) ||
+                            (primaryEffect == "brightness" && g_brightnessAdded.load()) ||
+                            (primaryEffect == "float" && g_floatAdded.load()) ||
+                            (primaryEffect == "tilt" && g_tiltAdded.load());
+                        if (exists) { primaryEffectChanges.emplace_back(primaryEffect, enabled); found = true; }
+                    }
+                    auto apply = [&](auto &owners) {
+                        for (auto &owner : owners) if (owner.id == targetId)
+                            for (auto &effect : owner.effects) if (effect.id == effectId) {
+                                effect.enabled = enabled; found = true; return;
+                            }
+                    };
+                    if (!found) apply(next.layers); if (!found) apply(next.groups);
+                } else {
+                    request->response = "{\"ok\":false,\"error\":\"Unsupported action in step " + std::to_string(index + 1) + "\"}";
+                    return 0;
+                }
+                if (!found) {
+                    request->response = "{\"ok\":false,\"error\":\"Target in step " + std::to_string(index + 1) + " was not found\"}";
+                    return 0;
+                }
+            }
+            applyPending();
+            InvalidateRect(window, nullptr, FALSE);
+            sendLayerState();
+            sendPresetState();
+            if (primaryEffectsChanged) sendBounceSettings();
+            request->response = "{\"ok\":true,\"action\":\"sequence.run\",\"steps\":" + std::to_string(steps.size()) + "}";
+            return 0;
+        }
+        if (action != "preset.activate") {
+            request->response = "{\"ok\":false,\"error\":\"Unknown action. Supported actions: server.status, preset.activate, sequence.run\"}";
+            return 0;
+        }
+        const std::wstring presetId = fromUtf8(jsonStringValue(request->payload, "presetId"));
+        bool exists = false;
+        for (const auto &preset : preset_store::listPresets())
+            if (preset.id == presetId) { exists = true; break; }
+        if (!exists || !preset_store::selectPreset(presetId) || !preset_store::revertActivePreset()) {
+            request->response = "{\"ok\":false,\"error\":\"Preset ID was not found\"}";
+            return 0;
+        }
+        ++g_presetGeneration;
+        applyPresetDraftToRuntime();
+        sendLayerState();
+        sendPresetState();
+        request->response = "{\"ok\":true,\"action\":\"preset.activate\"}";
+        return 0;
+    }
     case WM_ACTIVATE:
         g_applicationActive.store(LOWORD(wParam) != WA_INACTIVE);
         return 0;
@@ -3317,7 +3547,11 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         sendAvatarTransformSettings();
         sendLayerState();
         sendSpoutSettings();
+        sendWebSocketState();
         postAvatarSettingsMessage(L"reaction-preview-off");
+        return 0;
+    case kAvatarSettingsWebSocketStateMessage:
+        sendWebSocketState();
         return 0;
     case kAvatarSettingsUpdatePresetMessage:
         if (preset_store::updateActivePreset()) sendPresetState();
@@ -4198,6 +4432,20 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     reloadDraftLayers();
     g_audioMonitor->start(g_mainWindow, g_selectedMicrophoneId);
 
+    g_webSocketServer = std::make_unique<WebSocketServer>();
+    if (g_webSocketServer->start(17891, [](const std::string &payload) {
+            WebSocketCommandRequest request{payload, {}};
+            if (!g_mainWindow || !IsWindow(g_mainWindow) ||
+                !SendMessageW(g_mainWindow, kWebSocketCommandMessage, 0,
+                              reinterpret_cast<LPARAM>(&request))) {
+                if (request.response.empty())
+                    request.response = "{\"ok\":false,\"error\":\"Avatar Suite is shutting down\"}";
+            }
+            return request.response;
+        })) {
+        logMessage(L"WebSocket server could not bind to 127.0.0.1:17891.");
+    } else logMessage(L"WebSocket server listening on ws://127.0.0.1:17891.");
+
     g_running.store(true);
     std::thread renderThread(renderThreadMain);
 
@@ -4216,6 +4464,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
     }
 
     g_running.store(false);
+    if (g_webSocketServer)
+        g_webSocketServer->stop();
     if (g_audioMonitor)
         g_audioMonitor->stop();
     if (renderThread.joinable())

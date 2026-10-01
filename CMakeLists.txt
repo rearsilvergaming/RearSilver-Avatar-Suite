@@ -19,15 +19,17 @@ target_link_libraries(RearSilverSpout2 PUBLIC opengl32 kernel32 user32 gdi32 win
 if(MSVC)
   target_compile_options(RearSilverSpout2 PRIVATE /EHsc)
 endif()
-add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/audio_monitor.cpp src/preset_store.cpp src/layer_model.cpp src/app.rc)
+add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/audio_monitor.cpp src/preset_store.cpp src/layer_model.cpp src/websocket_server.cpp src/app.rc)
 set_target_properties(RearSilverAvatarSuite PROPERTIES OUTPUT_NAME "RearSilver Avatar Suite")
+configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/avatar-settings.html"
+  "${CMAKE_CURRENT_BINARY_DIR}/avatar-settings.html" COPYONLY)
 target_compile_features(RearSilverAvatarSuite PRIVATE cxx_std_17)
 if(MSVC)
   target_compile_options(RearSilverAvatarSuite PRIVATE /utf-8 /EHsc)
 endif()
 target_compile_definitions(RearSilverAvatarSuite PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(RearSilverAvatarSuite PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include")
-target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 msimg32 user32 version bcrypt
+target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 msimg32 user32 version bcrypt ws2_32
   RearSilverSpout2
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
 add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD

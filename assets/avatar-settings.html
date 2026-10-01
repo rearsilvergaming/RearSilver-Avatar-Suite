@@ -66,6 +66,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .layer-effects{grid-column:1/-1;margin-top:2px;border:1px solid #344257;border-radius:10px;background:#111821}.layer-effects summary{padding:12px 14px;cursor:pointer;font-weight:800}.layer-effects-body{padding:0 14px 14px}.local-effect-item{padding:16px 0;border-top:1px solid #344257}.local-effect-item:first-child{border-top:0;padding-top:4px}.layer-effects-heading{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px}.layer-effects-heading h4{margin:0}.layer-effects-heading .setting-actions{justify-content:flex-end}.local-effect-item>.control-grid{margin-top:0}.local-effect-add{padding-top:16px;border-top:1px solid #344257}.artwork-file-row{align-items:center}.artwork-file-name{flex:1;min-width:120px;max-width:100%;overflow-wrap:anywhere;word-break:break-word}
 .built-in-grid{display:grid;grid-template-columns:repeat(2,minmax(230px,1fr));gap:12px}.built-in-option{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:5px;padding:14px}.built-in-option strong{font-size:14px}.built-in-option span{color:var(--muted);font-size:12px;line-height:1.5}
 .effect-heading.composition-heading{display:block}.composition-actions{justify-content:flex-end;margin-top:14px;flex-wrap:nowrap}.composition-stack-list{margin-top:18px}
+.automation-step{overflow:hidden}.automation-step .control-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.automation-step .control-grid>div{min-width:0;max-width:100%}.automation-step select{min-width:0;max-width:100%;width:100%}
 .preset-list{display:grid;gap:12px}.preset-card{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px}.preset-card h3{margin:0}.preset-card-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.preset-card-actions button{padding:8px 11px}.preset-card-meta{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
 .effect-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.effect-heading h3{margin:0}.effect-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.effect-tools button{padding:7px 10px}.effect-body[hidden]{display:none}.effect-body>p{margin-top:12px}
 .empty-effects{padding:28px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);text-align:center;line-height:1.6}
@@ -89,6 +90,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <button class="tab" data-page="microphone" title="Microphone"><svg class="nav-icon" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="12" rx="4"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg><span>Microphone</span></button>
     <button class="tab" data-page="blink" title="Blink"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg><span>Blink</span></button>
     <button class="tab" data-page="effects" title="Effects"><svg class="nav-icon" viewBox="0 0 24 24"><path d="m12 2 1.5 5.2L18 9l-4.5 1.8L12 16l-1.5-5.2L6 9l4.5-1.8L12 2ZM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></svg><span>Effects</span></button>
+    <button class="tab" data-page="websocket" title="WebSocket"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M7 7a7 7 0 0 0-2 9l3-3M17 17a7 7 0 0 0 2-9l-3 3M9 5l3 3-3 3M15 19l-3-3 3-3"/></svg><span>WebSocket</span></button>
     <button class="tab" data-page="backgrounds" title="Backgrounds"><svg class="nav-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m5 18 5-5 3 3 2-2 4 4"/></svg><span>Backgrounds</span></button>
     <button class="tab" data-page="output" title="Output"><svg class="nav-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M8 10h8M14 7l3 3-3 3"/></svg><span>Output</span></button>
     <button class="tab" data-page="general" title="General"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="13" cy="18" r="2"/></svg><span>General</span></button>
@@ -230,6 +232,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     </div>
     <button class="primary add-effect" id="add-effect">+ Add effect</button>
   </section>
+  <section class="panel page" data-page="websocket" hidden><h2>WebSocket control</h2><p class="intro">Connect local automation tools to Avatar Suite without giving them control of the interface.</p><div class="cards"><article class="card"><div class="setting-row"><div><h3 style="margin-top:0">Local server</h3><div class="file-name">ws://127.0.0.1:17891/</div><p class="status" id="websocket-status">Checking server…</p></div><span class="tag" id="websocket-status-tag">CHECKING</span></div><div class="control-grid" style="margin-top:14px"><div><label>Connected clients</label><div class="file-name" id="websocket-client-count">0</div></div><div><label>Messages received</label><div class="file-name" id="websocket-message-count">0</div></div></div><p class="status" id="websocket-last-command">No command received yet.</p><p>Avatar Suite only listens on this computer. Connections from other devices are not accepted.</p></article><article class="card"><h3>Ordered action sequence</h3><p>Build one command from multiple layer, group, and configured-effect changes. Steps run from top to bottom.</p><div class="stack" id="websocket-sequence-steps"></div><div class="setting-actions" style="margin-top:14px"><button id="websocket-add-step">+ Add step</button><button id="websocket-clear-steps">Clear sequence</button></div><p class="status" id="websocket-sequence-status">No sequence steps configured.</p><label for="websocket-json" style="margin-top:16px">Generated JSON command</label><textarea id="websocket-json" readonly style="width:100%;min-height:150px;resize:vertical"></textarea><p class="status" id="websocket-summary">Add at least one action step.</p><div class="setting-actions" style="margin-top:14px"><button id="websocket-test">Test action</button><button class="primary" id="websocket-copy">Copy JSON</button></div><p class="status" id="websocket-result"></p></article><article class="card"><h3>Streamer.bot C# action</h3><p>Add an <strong>Execute C# Code</strong> sub-action in Streamer.bot and paste this generated code. The client number is its zero-based position under <strong>Servers/Clients → WebSocket Clients</strong>.</p><label for="streamerbot-client-index">WebSocket client number</label><input id="streamerbot-client-index" type="number" min="0" max="99" step="1" value="0"><label for="streamerbot-code" style="margin-top:14px">C# code</label><textarea id="streamerbot-code" readonly spellcheck="false" style="width:100%;min-height:220px;resize:vertical;font-family:Consolas,monospace"></textarea><div class="setting-actions" style="margin-top:14px"><button class="primary" id="streamerbot-copy">Copy Streamer.bot code</button></div><p class="status" id="streamerbot-result"></p></article><article class="card"><h3>Supported commands</h3><p><strong>server.status</strong> checks that Avatar Suite is available. <strong>preset.activate</strong> atomically applies the selected preset’s last saved snapshot.</p><p class="status">Layer overrides, timed restoration, effects, and saved actions will build on this server foundation.</p></article></div></section>
   <section class="panel page" data-page="backgrounds" hidden>
     <h2>Backgrounds</h2>
     <p class="intro">Choose what appears behind the avatar for the selected capture method.</p>
@@ -267,6 +270,7 @@ const pageDetails={
   microphone:['Microphone','Choose the input device and tune when the avatar reacts.'],
   blink:['Blink','Configure automatic blinking for idle and reaction images.'],
   effects:['Effects','Build and order the movement and appearance effects applied to the avatar.'],
+  websocket:['WebSocket','Connect local automation tools and build commands.'],
   backgrounds:['Backgrounds','Choose what appears behind the avatar for the selected capture method.'],
   output:['Output','Configure how Avatar Suite is captured by OBS.'],
   general:['General','Manage Avatar Suite preferences and Stream Suite companion behaviour.'],
@@ -284,10 +288,11 @@ function showPage(name){
   document.getElementById('page-title').textContent=details[0];
   document.getElementById('page-intro').textContent=details[1];
   document.getElementById('preset-editor').hidden=!['avatar','blink','effects','backgrounds','layers'].includes(name);
-  const fullWidthPage=['presets','general','feedback','updates','help'].includes(name);
+  const fullWidthPage=['presets','websocket','general','feedback','updates','help'].includes(name);
   document.getElementById('preview-card').hidden=fullWidthPage;
   document.querySelector('.settings-layout').classList.toggle('tools-page',fullWidthPage);
   window.chrome.webview.postMessage(`page-changed\t${name}`);
+  if(name==='websocket'&&typeof checkWebSocketServer==='function')checkWebSocketServer();
 }
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>showPage(tab.dataset.page));
 const updatePresetButton=document.getElementById('update-preset');
@@ -345,7 +350,79 @@ function renderPresets(){
     const remove=document.createElement('button');remove.textContent='Delete';remove.disabled=pendingPresets.length<=1;remove.onclick=()=>{if(confirm(`Delete “${preset.name}”? This removes its saved settings and draft.`))sendPresetAction(['delete',preset.id])};
     actions.append(duplicate,exportButton,rename,remove);card.append(copy,actions);presetList.append(card);
   });
+  updateWebSocketPresetChoices();
 }
+const websocketJson=document.getElementById('websocket-json');
+const websocketSummary=document.getElementById('websocket-summary');
+const websocketResult=document.getElementById('websocket-result');
+const streamerbotClientIndex=document.getElementById('streamerbot-client-index');
+const streamerbotCode=document.getElementById('streamerbot-code');
+streamerbotClientIndex.value=localStorage.getItem('streamerbot-client-index')||'0';
+function updateStreamerbotCode(){
+  const index=Math.max(0,Math.min(99,Number(streamerbotClientIndex.value)||0));
+  let command;try{command=JSON.stringify(JSON.parse(websocketJson.value))}catch{command=JSON.stringify({action:'sequence.run',steps:[]})}
+  const message=command.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+  streamerbotCode.value=`using System;\n\npublic class CPHInline\n{\n    public bool Execute()\n    {\n        CPH.WebsocketSend("${message}", ${index});\n        return true;\n    }\n}`;
+}
+function updateWebSocketAction(){
+  if(automationSteps.length){updateSequenceCommand();return}
+  websocketJson.value=JSON.stringify({action:'sequence.run',steps:[]},null,2);
+  websocketSummary.textContent='Add at least one action step.';
+  updateStreamerbotCode();
+}
+function updateWebSocketPresetChoices(){
+  renderAutomationSteps();
+}
+streamerbotClientIndex.oninput=()=>{localStorage.setItem('streamerbot-client-index',String(Math.max(0,Math.min(99,Number(streamerbotClientIndex.value)||0))));updateStreamerbotCode()};
+const sequenceStepsElement=document.getElementById('websocket-sequence-steps');
+const automationSteps=[];
+function availableAutomationTargets(type){
+  if(type==='preset.activate')return pendingPresets.map(preset=>({value:preset.id,label:preset.name}));
+  if(type==='effect.enabled'){
+    const primaryNames={bounce:'Reaction bounce',breathing:'Breathing',squash:'Squash and stretch',shake:'Shake',brightness:'Idle/Reaction brightness',float:'Float',tilt:'Tilt'};
+    const primary=(typeof effectOrder==='undefined'?[]:effectOrder).map(effect=>({value:`primary|${effect}`,label:`Primary — ${primaryNames[effect]||effect}`}));
+    const local=pendingLayers.flatMap(owner=>(owner.effects||[]).map(effect=>({value:`${owner.id}|${effect.id}`,label:`${owner.name} — ${{sway:'Sway','bounded-movement':'Bounded movement',orbit:'Orbit','local-pulse':'Local pulse','local-spin':'Local spin','reaction-nudge':'Reaction nudge','state-visibility':'State visibility','dangle-spring':'Dangle / spring',flutter:'Flutter','artwork-state-change':'Artwork state change'}[effect.type]||'Effect'}`})));
+    return [...primary,...local];
+  }
+  return pendingLayers.filter(item=>!item.primary&&(type==='group.visibility'?item.group:!item.group)).map(item=>({value:item.id,label:item.name}));
+}
+function updateSequenceCommand(){
+  if(!automationSteps.length){updateWebSocketAction();return}
+  const steps=automationSteps.map(step=>{if(step.type==='preset.activate')return{action:step.type,presetId:step.targetId};const command={action:step.type,targetId:step.targetId,enabled:step.enabled};if(step.type==='effect.enabled')command.effectId=step.effectId;return command});
+  websocketJson.value=JSON.stringify({action:'sequence.run',steps},null,2);
+  websocketSummary.textContent=`Run ${steps.length} action step${steps.length===1?'':'s'} in order.`;
+  document.getElementById('websocket-sequence-status').textContent=`${steps.length} step${steps.length===1?'':'s'} configured. The preset itself is not edited.`;
+  updateStreamerbotCode();
+}
+function renderAutomationSteps(){
+  sequenceStepsElement.replaceChildren();
+  automationSteps.forEach((step,index)=>{
+    const card=document.createElement('div');card.className='card automation-step';card.style.padding='12px';
+    const grid=document.createElement('div');grid.className='control-grid';
+    const typeWrap=document.createElement('div');const typeLabel=document.createElement('label');typeLabel.textContent=`Step ${index+1}`;const type=document.createElement('select');[['preset.activate','Activate preset'],['layer.visibility','Layer visibility'],['group.visibility','Group visibility'],['effect.enabled','Configured effect']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;type.append(option)});type.value=step.type;type.onchange=()=>{step.type=type.value;const first=availableAutomationTargets(step.type)[0];step.targetId=first?(step.type==='effect.enabled'?first.value.split('|')[0]:first.value):'';step.effectId=first&&step.type==='effect.enabled'?first.value.split('|')[1]:'';renderAutomationSteps()};typeWrap.append(typeLabel,type);
+    const targetWrap=document.createElement('div');const targetLabel=document.createElement('label');targetLabel.textContent=step.type==='preset.activate'?'Preset':'Target';const target=document.createElement('select');availableAutomationTargets(step.type).forEach(item=>{const option=document.createElement('option');option.value=item.value;option.textContent=item.label;target.append(option)});target.value=step.type==='effect.enabled'?`${step.targetId}|${step.effectId}`:step.targetId;target.onchange=()=>{const values=target.value.split('|');step.targetId=values[0];step.effectId=values[1]||'';updateSequenceCommand()};targetWrap.append(targetLabel,target);
+    grid.append(typeWrap,targetWrap);if(step.type!=='preset.activate'){const stateWrap=document.createElement('div');const stateLabel=document.createElement('label');stateLabel.textContent=step.type==='effect.enabled'?'Effect state':'Visibility';const state=document.createElement('select');[[true,step.type==='effect.enabled'?'Enable':'Show'],[false,step.type==='effect.enabled'?'Disable':'Hide']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value?'1':'0';option.textContent=label;state.append(option)});state.value=step.enabled?'1':'0';state.onchange=()=>{step.enabled=state.value==='1';updateSequenceCommand()};stateWrap.append(stateLabel,state);grid.append(stateWrap)}
+    const actions=document.createElement('div');actions.className='setting-actions';actions.style.marginTop='10px';[['▲',()=>{if(index){[automationSteps[index-1],automationSteps[index]]=[automationSteps[index],automationSteps[index-1]];renderAutomationSteps()}}],['▼',()=>{if(index<automationSteps.length-1){[automationSteps[index+1],automationSteps[index]]=[automationSteps[index],automationSteps[index+1]];renderAutomationSteps()}}],['Remove',()=>{automationSteps.splice(index,1);renderAutomationSteps()}]].forEach(([label,run])=>{const button=document.createElement('button');button.textContent=label;button.onclick=run;actions.append(button)});card.append(grid,actions);sequenceStepsElement.append(card);
+  });
+  if(automationSteps.length)updateSequenceCommand();else{document.getElementById('websocket-sequence-status').textContent='No sequence steps configured.';updateWebSocketAction()}
+}
+document.getElementById('websocket-add-step').onclick=()=>{const target=availableAutomationTargets('layer.visibility')[0];automationSteps.push({type:'layer.visibility',targetId:target?target.value:'',effectId:'',enabled:true});renderAutomationSteps()};
+document.getElementById('websocket-clear-steps').onclick=()=>{automationSteps.splice(0);renderAutomationSteps()};
+function runWebSocketCommand(command){
+  websocketResult.textContent='Connecting…';
+  return new Promise((resolve,reject)=>{
+    const socket=new WebSocket('ws://127.0.0.1:17891');
+    const timeout=setTimeout(()=>{socket.close();reject(new Error('Connection timed out'))},3000);
+    socket.onopen=()=>socket.send(command);
+    socket.onmessage=event=>{clearTimeout(timeout);socket.close();resolve(String(event.data||''))};
+    socket.onerror=()=>{clearTimeout(timeout);reject(new Error('Could not connect to Avatar Suite'))};
+  });
+}
+function checkWebSocketServer(){window.chrome.webview.postMessage('websocket-state-request')}
+setInterval(()=>{const page=document.querySelector('.page[data-page="websocket"]');if(page&&!page.hidden)checkWebSocketServer()},1000);
+document.getElementById('websocket-test').onclick=async()=>{try{const reply=JSON.parse(await runWebSocketCommand(websocketJson.value));websocketResult.textContent=reply.ok?'Action completed successfully.':reply.error||'Action failed.'}catch(error){websocketResult.textContent=error.message}};
+document.getElementById('websocket-copy').onclick=async()=>{try{await navigator.clipboard.writeText(websocketJson.value);websocketResult.textContent='JSON copied to the clipboard.'}catch{websocketJson.select();document.execCommand('copy');websocketResult.textContent='JSON copied to the clipboard.'}};
+document.getElementById('streamerbot-copy').onclick=async()=>{const result=document.getElementById('streamerbot-result');try{await navigator.clipboard.writeText(streamerbotCode.value);result.textContent='Streamer.bot C# code copied to the clipboard.'}catch{streamerbotCode.select();document.execCommand('copy');result.textContent='Streamer.bot C# code copied to the clipboard.'}};
 document.getElementById('new-preset').onclick=()=>openPresetNameModal('create');
 document.getElementById('import-preset').onclick=()=>requestPresetSwitch(['import']);
 document.getElementById('close-preset-modal').onclick=closePresetNameModal;
@@ -1109,6 +1186,13 @@ window.chrome.webview.addEventListener('message',event=>{
   const status=document.getElementById('avatar-status');
   if(type==='navigate-page'){
     showPage(value);
+  }else if(type==='websocket-state'){
+    const listening=fields[1]==='1';const clients=Number(fields[2]||0);const messages=Number(fields[3]||0);const last=fields[4]||'';
+    document.getElementById('websocket-client-count').textContent=String(clients);
+    document.getElementById('websocket-message-count').textContent=String(messages);
+    document.getElementById('websocket-last-command').textContent=last?`Last command received: ${last}`:'No command received yet.';
+    document.getElementById('websocket-status').textContent=!listening?'The local server could not start.':clients?`${clients} automation client${clients===1?' is':'s are'} connected.`:'Listening, but no automation client is connected.';
+    document.getElementById('websocket-status-tag').textContent=!listening?'UNAVAILABLE':clients?'CONNECTED':'LISTENING';
   }else if(type==='layer-list-reset'){
     pendingLayers=[];
   }else if(type==='layer-group'){
@@ -1127,6 +1211,7 @@ window.chrome.webview.addEventListener('message',event=>{
     [...expandedLayerIds].forEach(id=>{if(!currentIds.has(id))expandedLayerIds.delete(id)});
     knownLayerIds=currentIds;
     renderLayers();
+    renderAutomationSteps();
   }else if(type==='preset-list-reset'){
     pendingPresets=[];
   }else if(type==='preset-item'){
