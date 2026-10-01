@@ -894,6 +894,20 @@ void reloadDraftLayers()
         } catch (...) {
             logMessage(L"Layer image is unavailable: " + layer.imagePath);
         }
+        for (const auto &effect : layer.effects) {
+            if (effect.type != layer_model::LocalEffectType::ArtworkStateChange || effect.imagePath.empty()) continue;
+            try {
+                PendingImage decoded;
+                if (!decodePng(effect.imagePath.c_str(), decoded)) throw E_INVALIDARG;
+                decoded.slot = ImageSlot::Layer;
+                decoded.layerId = layer.id + L"::effect::" + effect.id;
+                decoded.persistSelection = false;
+                std::lock_guard<std::mutex> lock(g_pendingImageMutex);
+                g_pendingImages.push_back(std::move(decoded));
+            } catch (...) {
+                logMessage(L"Layer effect image is unavailable: " + effect.imagePath);
+            }
+        }
     }
 }
 
@@ -1104,13 +1118,17 @@ void sendLayerState()
             case layer_model::LocalEffectType::StateVisibility: type=L"state-visibility"; break;
             case layer_model::LocalEffectType::DangleSpring: type=L"dangle-spring"; break;
             case layer_model::LocalEffectType::Flutter: type=L"flutter"; break;
+            case layer_model::LocalEffectType::ArtworkStateChange: type=L"artwork-state-change"; break;
             }
             postAvatarSettingsMessage(L"local-effect\t" + ownerKind + L"\t" + ownerId + L"\t" + effect.id + L"\t" +
                 type + L"\t" +
                 (effect.enabled ? L"1" : L"0") + L"\t" + std::to_wstring(effect.amountX) + L"\t" +
                 std::to_wstring(effect.amountY) + L"\t" + std::to_wstring(effect.cycleMs) + L"\t" +
                 std::to_wstring(effect.reactionBoost) + L"\t" + std::to_wstring(effect.pivot) + L"\t" +
-                std::to_wstring(effect.activeDuring));
+                std::to_wstring(effect.activeDuring) + L"\t" +
+                (effect.imageDisplayName.empty() && !effect.imagePath.empty() ? L"Selected PNG" : effect.imageDisplayName) + L"\t" +
+                std::to_wstring(effect.artworkScaleX) + L"\t" + std::to_wstring(effect.artworkScaleY) + L"\t" +
+                (effect.artworkScaleLinked ? L"1" : L"0"));
         }
     };
     auto sendLayer = [&](const layer_model::Layer &layer, const std::wstring &groupId) {
@@ -1342,6 +1360,32 @@ void addLayerFromPicker(HWND owner)
     g_dialogOpen.store(false);
 }
 
+std::wstring chooseManagedLayerEffectPng(std::wstring &displayName)
+{
+    wchar_t path[32768]{};
+    OPENFILENAMEW picker{}; picker.lStructSize=sizeof(picker);
+    picker.hwndOwner=avatarSettingsWindowHandle() ? avatarSettingsWindowHandle() : g_mainWindow;
+    picker.lpstrFilter=L"PNG images\0*.png\0All files\0*.*\0"; picker.lpstrFile=path;
+    picker.nMaxFile=static_cast<DWORD>(std::size(path));
+    picker.Flags=OFN_FILEMUSTEXIST|OFN_PATHMUSTEXIST|OFN_NOCHANGEDIR;
+    g_dialogOpen.store(true);
+    const BOOL selected=GetOpenFileNameW(&picker);
+    g_dialogOpen.store(false);
+    if (!selected) return {};
+    try {
+        PendingImage validation;
+        if (!decodePng(path,validation)) throw E_INVALIDARG;
+        const std::wstring managed=preset_store::importPngAsset(path);
+        if (managed.empty()) throw E_FAIL;
+        displayName=fileNameFromPath(path);
+        return managed;
+    } catch (...) {
+        MessageBoxW(g_mainWindow,L"Could not use this artwork. Choose a valid PNG no larger than 8192 × 8192 pixels.",
+                    L"RearSilver Avatar Suite — Artwork State Change",MB_OK|MB_ICONERROR);
+        return {};
+    }
+}
+
 void handleLayerCommand(const std::wstring &command, bool previewOnly)
 {
     const size_t first = command.find(L'\t');
@@ -1367,6 +1411,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
         if (effectAction == L"effect-add-visibility") return addUnique(layer_model::LocalEffectType::StateVisibility);
         if (effectAction == L"effect-add-spring") return addUnique(layer_model::LocalEffectType::DangleSpring);
         if (effectAction == L"effect-add-flutter") return addUnique(layer_model::LocalEffectType::Flutter);
+        if (effectAction == L"effect-add-artwork") return addUnique(layer_model::LocalEffectType::ArtworkStateChange);
         const auto effect = std::find_if(effects.begin(), effects.end(), [&](const auto &candidate) { return candidate.id == effectId; });
         if (effect == effects.end()) return false;
         if (effectAction == L"effect-remove") effects.erase(effect);
@@ -1379,6 +1424,14 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
         else if (effectAction == L"effect-boost") effect->reactionBoost = std::clamp(_wtoi(setting.c_str()), 0, 300);
         else if (effectAction == L"effect-pivot") effect->pivot = std::clamp(_wtoi(setting.c_str()), 0, 9);
         else if (effectAction == L"effect-active") effect->activeDuring = std::clamp(_wtoi(setting.c_str()), 0, 2);
+        else if (effectAction == L"effect-artwork-choose") {
+            std::wstring displayName; const std::wstring path=chooseManagedLayerEffectPng(displayName);
+            if (path.empty()) return false; effect->imagePath=path; effect->imageDisplayName=displayName;
+        }
+        else if (effectAction == L"effect-artwork-remove") { effect->imagePath.clear(); effect->imageDisplayName.clear(); }
+        else if (effectAction == L"effect-artwork-scale-x") { effect->artworkScaleX=std::clamp(_wtoi(setting.c_str()),1,2000); if(effect->artworkScaleLinked)effect->artworkScaleY=effect->artworkScaleX; }
+        else if (effectAction == L"effect-artwork-scale-y") { effect->artworkScaleY=std::clamp(_wtoi(setting.c_str()),1,2000); if(effect->artworkScaleLinked)effect->artworkScaleX=effect->artworkScaleY; }
+        else if (effectAction == L"effect-artwork-scale-link") effect->artworkScaleLinked=setting!=L"0";
         else return false;
         return true;
     };
@@ -1429,6 +1482,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
         else if (action == L"group-flip") group->flipHorizontal = value != L"0";
         else if (action == L"group-inherit") group->inheritAvatarEffects = value != L"0";
         else if (action.rfind(L"group-effect-", 0) == 0) {
+            if (action == L"group-effect-add-artwork") return;
             if (!updateEffect(group->effects, action.substr(6))) return;
         }
         else return;
@@ -1455,7 +1509,8 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
         [&](const layer_model::Group &group) {
             return std::find(group.layerOrder.begin(), group.layerOrder.end(), id) != group.layerOrder.end();
         });
-    const bool removesTexture = action == L"remove";
+    const bool reloadsTextures = action == L"remove" || action == L"effect-artwork-choose" ||
+        action == L"effect-artwork-remove";
     if (action == L"remove") {
         layers.erase(found);
         if (parentGroup != composition.groups.end()) {
@@ -1533,7 +1588,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
         return;
     }
     if (layer_model::saveDraftComposition(composition)) {
-        if (removesTexture) reloadDraftLayers();
+        if (reloadsTextures) reloadDraftLayers();
         else { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = composition; }
         postAvatarSettingsMessage(L"preset-dirty\t1");
         if (action == L"remove" || action == L"up" || action == L"down" ||
@@ -1542,7 +1597,8 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             action == L"sway-add" || action == L"sway-remove" ||
             action == L"eye-add" || action == L"eye-remove" ||
             action.rfind(L"effect-add-", 0) == 0 ||
-            action == L"effect-remove" || action == L"effect-up" || action == L"effect-down")
+            action == L"effect-remove" || action == L"effect-up" || action == L"effect-down" ||
+            action == L"effect-artwork-choose" || action == L"effect-artwork-remove")
             sendLayerState();
     }
 }
@@ -2080,6 +2136,22 @@ public:
                 const auto found = std::find_if(layerImages_.begin(), layerImages_.end(),
                     [&](const LayerTexture &item) { return item.id == layer.id; });
                 if (found == layerImages_.end()) return;
+                const LayerTexture *rendered=&*found;
+                float artworkScaleX=1.0f, artworkScaleY=1.0f;
+                for (const auto &effect : layer.effects) {
+                    if (effect.type != layer_model::LocalEffectType::ArtworkStateChange ||
+                        !effect.enabled || effect.imagePath.empty()) continue;
+                    const bool useAlternate=effect.activeDuring == 1 ? reactionActive : !reactionActive;
+                    if (!useAlternate) continue;
+                    const std::wstring alternateId=layer.id+L"::effect::"+effect.id;
+                    const auto alternate=std::find_if(layerImages_.begin(),layerImages_.end(),
+                        [&](const LayerTexture &item){return item.id==alternateId;});
+                    if (alternate!=layerImages_.end()) {
+                        rendered=&*alternate;
+                        artworkScaleX=static_cast<float>(effect.artworkScaleX)/100.0f;
+                        artworkScaleY=static_cast<float>(effect.artworkScaleY)/100.0f;
+                    }
+                }
                 auto evaluateEffects = [&](const std::wstring &ownerId,
                                            const std::vector<layer_model::LocalEffect> &effects,
                                            float driverX, float driverY,
@@ -2087,6 +2159,7 @@ public:
                                            float &scale, float &opacity, int &pivot) {
                     for (const auto &effect : effects) {
                         if (!effect.enabled) continue;
+                        if (effect.type == layer_model::LocalEffectType::ArtworkStateChange) continue;
                         const unsigned cycle = static_cast<unsigned>(std::max(200, effect.cycleMs));
                         const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
                         if (effect.type == layer_model::LocalEffectType::Sway) {
@@ -2188,16 +2261,16 @@ public:
                     layerEffectScale, layerEffectOpacity, localEffectPivot);
                 const float groupScaleX = (group ? static_cast<float>(group->scaleX) / 100.0f : 1.0f) * groupEffectScale;
                 const float groupScaleY = (group ? static_cast<float>(group->scaleY) / 100.0f : 1.0f) * groupEffectScale;
-                const float localX = static_cast<float>(layer.scaleX) / 100.0f * groupScaleX * layerEffectScale;
-                const float localY = static_cast<float>(layer.scaleY) / 100.0f * groupScaleY * layerEffectScale;
+                const float localX = static_cast<float>(layer.scaleX) / 100.0f * groupScaleX * layerEffectScale * artworkScaleX;
+                const float localY = static_cast<float>(layer.scaleY) / 100.0f * groupScaleY * layerEffectScale * artworkScaleY;
                 const float effectScaleX = inheritsRoot && baseAvatarWidth > 0.0f
                                                ? avatarWidth / baseAvatarWidth : 1.0f;
                 const float effectScaleY = inheritsRoot && baseAvatarHeight > 0.0f
                                                ? avatarHeight / baseAvatarHeight : 1.0f;
                 const float rootX = primaryScale * effectScaleX;
                 const float rootY = primaryScale * effectScaleY;
-                const float layerWidth = found->texture.width * rootX * localX;
-                const float layerHeight = found->texture.height * rootY * localY;
+                const float layerWidth = rendered->texture.width * rootX * localX;
+                const float layerHeight = rendered->texture.height * rootY * localY;
                 const float centreX = static_cast<float>(width_) * 0.5f + motionX +
                     (group ? group->positionX + groupEffectX : 0) + (layer.positionX + layerEffectX) * groupScaleX;
                 const float centreY = baseBottom - avatarHeight * 0.5f + motionY +
@@ -2245,7 +2318,7 @@ public:
                 const float groupOpacity = (group ? static_cast<float>(group->opacity) / 100.0f : 1.0f) * groupEffectOpacity;
                 setPixelAppearance(inheritsRoot ? currentBrightness_ : 1.0f,
                                    static_cast<float>(layer.opacity) / 100.0f * groupOpacity * layerEffectOpacity);
-                draw(found->texture, centreX - layerWidth * 0.5f, centreY - layerHeight * 0.5f,
+                draw(rendered->texture, centreX - layerWidth * 0.5f, centreY - layerHeight * 0.5f,
                      layerWidth, layerHeight, localRotation, pivotU, pivotV,
                      localEffectRotation, effectPivotU, effectPivotV, rootRotation,
                      avatarRootPivotX, avatarRootPivotY, layer.flipHorizontal,

@@ -633,6 +633,11 @@ bool isAvatarSettingsWindowVisible()
     return g_settingsVisible.load();
 }
 
+HWND avatarSettingsWindowHandle()
+{
+    return g_settingsWindow && IsWindow(g_settingsWindow) ? g_settingsWindow : nullptr;
+}
+
 void postAvatarSettingsMessage(const std::wstring &message)
 {
     if (g_webView)

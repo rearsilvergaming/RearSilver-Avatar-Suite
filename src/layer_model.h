@@ -8,7 +8,7 @@ enum class StackItemType { Primary, Layer, Group };
 struct StackItem { StackItemType type = StackItemType::Layer; std::wstring id; };
 enum class LocalEffectType {
     Sway, BoundedMovement, Orbit, LocalPulse, LocalSpin, ReactionNudge, StateVisibility,
-    DangleSpring, Flutter
+    DangleSpring, Flutter, ArtworkStateChange
 };
 struct LocalEffect {
     std::wstring id;
@@ -18,6 +18,9 @@ struct LocalEffect {
     // Bounded movement: amountX/Y are pixel ranges and activeDuring is idle/reaction/both.
     int amountX = 8, amountY = 25, cycleMs = 2400, reactionBoost = 25;
     int pivot = 0, activeDuring = 2;
+    std::wstring imagePath, imageDisplayName;
+    int artworkScaleX = 100, artworkScaleY = 100;
+    bool artworkScaleLinked = true;
 };
 struct Layer {
     std::wstring id, name, imagePath, purpose = L"generic";

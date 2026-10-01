@@ -385,8 +385,12 @@ bool exportPreset(const std::wstring &id, const std::wstring &destinationPath)
 
     std::vector<std::wstring> imageKeys{L"PrimaryImage", L"ReactionImage", L"PrimaryBlinkImage",
                                         L"ReactionBlinkImage", L"BackgroundImage"};
-    for (const auto &layerId : splitOrder(readValue(temporaryPreset, L"Preset", L"LayerOrder")))
+    for (const auto &layerId : splitOrder(readValue(temporaryPreset, L"Preset", L"LayerOrder"))) {
         imageKeys.push_back(L"Layer." + layerId + L".Image");
+        for (const auto &effectId : splitOrder(readValue(temporaryPreset, L"Preset",
+                 (L"Layer." + layerId + L".LocalEffectOrder").c_str())))
+            imageKeys.push_back(L"Layer." + layerId + L".Effect." + effectId + L".Image");
+    }
     std::map<std::string, std::vector<unsigned char>> entries;
     for (const auto &key : imageKeys) {
         const std::wstring source = readValue(temporaryPreset, L"Preset", key.c_str());
@@ -445,7 +449,7 @@ bool importPreset(const std::wstring &packagePath, std::wstring &createdId)
     if (!input) return false;
     char magic[8]{}; uint32_t count = 0;
     input.read(magic, sizeof(magic)); input.read(reinterpret_cast<char *>(&count), sizeof(count));
-    if (memcmp(magic, "RASPRE1", 7) != 0 || count < 2 || count > 32) return false;
+    if (memcmp(magic, "RASPRE1", 7) != 0 || count < 2 || count > 64) return false;
     std::map<std::string, std::vector<unsigned char>> entries;
     uint64_t total = 0;
     for (uint32_t index = 0; index < count; ++index) {
@@ -481,8 +485,12 @@ bool importPreset(const std::wstring &packagePath, std::wstring &createdId)
     }
     std::vector<std::wstring> imageKeys{L"PrimaryImage", L"ReactionImage", L"PrimaryBlinkImage",
                                         L"ReactionBlinkImage", L"BackgroundImage"};
-    for (const auto &layerId : splitOrder(readValue(saved, L"Preset", L"LayerOrder")))
+    for (const auto &layerId : splitOrder(readValue(saved, L"Preset", L"LayerOrder"))) {
         imageKeys.push_back(L"Layer." + layerId + L".Image");
+        for (const auto &effectId : splitOrder(readValue(saved, L"Preset",
+                 (L"Layer." + layerId + L".LocalEffectOrder").c_str())))
+            imageKeys.push_back(L"Layer." + layerId + L".Effect." + effectId + L".Image");
+    }
     for (const auto &key : imageKeys) {
         const std::wstring token = readValue(saved, L"Preset", key.c_str());
         constexpr std::wstring_view prefix = L"@asset/";

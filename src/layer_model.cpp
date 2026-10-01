@@ -50,6 +50,7 @@ const wchar_t *effectTypeName(LocalEffectType type) {
     case LocalEffectType::StateVisibility: return L"state-visibility";
     case LocalEffectType::DangleSpring: return L"dangle-spring";
     case LocalEffectType::Flutter: return L"flutter";
+    case LocalEffectType::ArtworkStateChange: return L"artwork-state-change";
     }
     return L"sway";
 }
@@ -63,6 +64,7 @@ bool parseEffectType(const std::wstring &name, LocalEffectType &type) {
     else if (name == L"state-visibility") type = LocalEffectType::StateVisibility;
     else if (name == L"dangle-spring") type = LocalEffectType::DangleSpring;
     else if (name == L"flutter") type = LocalEffectType::Flutter;
+    else if (name == L"artwork-state-change") type = LocalEffectType::ArtworkStateChange;
     else return false;
     return true;
 }
@@ -91,6 +93,11 @@ std::vector<LocalEffect> loadEffects(const std::wstring &kind, const std::wstrin
         effect.reactionBoost = effectInteger(kind, owner, id, L"ReactionBoost", 25, 0, 300);
         effect.pivot = effectInteger(kind, owner, id, L"Pivot", 0, 0, 9);
         effect.activeDuring = effectInteger(kind, owner, id, L"ActiveDuring", 2, 0, 2);
+        effect.imagePath = preset_store::loadDraftValue(effectKey(kind, owner, id, L"Image").c_str());
+        effect.imageDisplayName = preset_store::loadDraftValue(effectKey(kind, owner, id, L"ImageDisplayName").c_str());
+        effect.artworkScaleX = effectInteger(kind, owner, id, L"ArtworkScaleX", 100, 1, 2000);
+        effect.artworkScaleY = effectInteger(kind, owner, id, L"ArtworkScaleY", 100, 1, 2000);
+        effect.artworkScaleLinked = effectInteger(kind, owner, id, L"ArtworkScaleLinked", 1, 0, 1) != 0;
         effects.push_back(std::move(effect));
     }
     return effects;
@@ -112,6 +119,11 @@ bool saveEffects(const std::wstring &kind, const std::wstring &owner,
         ok = save(L"ReactionBoost", std::to_wstring(effect.reactionBoost)) && ok;
         ok = save(L"Pivot", std::to_wstring(effect.pivot)) && ok;
         ok = save(L"ActiveDuring", std::to_wstring(effect.activeDuring)) && ok;
+        ok = save(L"Image", effect.imagePath) && ok;
+        ok = save(L"ImageDisplayName", effect.imageDisplayName) && ok;
+        ok = save(L"ArtworkScaleX", std::to_wstring(effect.artworkScaleX)) && ok;
+        ok = save(L"ArtworkScaleY", std::to_wstring(effect.artworkScaleY)) && ok;
+        ok = save(L"ArtworkScaleLinked", effect.artworkScaleLinked ? L"1" : L"0") && ok;
     }
     return ok;
 }
@@ -406,6 +418,7 @@ LocalEffect makeLocalEffect(LocalEffectType type) {
     else if (type == LocalEffectType::StateVisibility) { effect.amountX=0; effect.amountY=0; effect.cycleMs=0; effect.activeDuring=1; }
     else if (type == LocalEffectType::DangleSpring) { effect.amountX=65; effect.amountY=80; effect.cycleMs=650; effect.activeDuring=2; }
     else if (type == LocalEffectType::Flutter) { effect.amountX=8; effect.amountY=5; effect.cycleMs=900; effect.activeDuring=2; }
+    else if (type == LocalEffectType::ArtworkStateChange) { effect.amountX=0; effect.amountY=0; effect.cycleMs=0; effect.activeDuring=1; }
     return effect;
 }
 }

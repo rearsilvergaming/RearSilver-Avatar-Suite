@@ -75,6 +75,7 @@ constexpr UINT kAvatarSettingsFlipMessage = WM_APP + 82;
 
 bool showAvatarSettingsWindow(HWND owner, const std::wstring &page = L"");
 bool isAvatarSettingsWindowVisible();
+HWND avatarSettingsWindowHandle();
 void postAvatarSettingsMessage(const std::wstring &message);
 void setAvatarSettingsPreviewImage(unsigned slot, const std::wstring &path);
 void shutdownAvatarSettingsWindow();
