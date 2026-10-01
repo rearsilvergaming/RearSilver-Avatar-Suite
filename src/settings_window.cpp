@@ -1,5 +1,6 @@
 #include "settings_window.h"
 #include "resource.h"
+#include <commdlg.h>
 #include <objidl.h>
 #include <shobjidl.h>
 #include <shellapi.h>
@@ -7,6 +8,7 @@
 #include <wrl.h>
 #include <wrl/event.h>
 #include <atomic>
+#include <cctype>
 #include <filesystem>
 #include <string>
 
@@ -26,6 +28,64 @@ bool g_settingsWasMaximised = false;
 std::atomic<bool> g_settingsVisible{false};
 std::wstring g_pendingPage;
 std::wstring g_lastSettingsPage = L"avatar";
+
+int hexadecimalValue(wchar_t character)
+{
+    if (character >= L'0' && character <= L'9') return character - L'0';
+    if (character >= L'a' && character <= L'f') return character - L'a' + 10;
+    if (character >= L'A' && character <= L'F') return character - L'A' + 10;
+    return -1;
+}
+
+std::string decodeUriComponent(const wchar_t *encoded)
+{
+    std::string decoded;
+    for (size_t index = 0; encoded[index]; ++index) {
+        if (encoded[index] == L'%' && encoded[index + 1] && encoded[index + 2]) {
+            const int high = hexadecimalValue(encoded[index + 1]);
+            const int low = hexadecimalValue(encoded[index + 2]);
+            if (high >= 0 && low >= 0) {
+                decoded.push_back(static_cast<char>((high << 4) | low));
+                index += 2;
+                continue;
+            }
+        }
+        if (encoded[index] <= 0x7f)
+            decoded.push_back(static_cast<char>(encoded[index]));
+    }
+    return decoded;
+}
+
+bool exportDiagnosticReport(const wchar_t *encodedReport)
+{
+    SYSTEMTIME timestamp{};
+    GetSystemTime(&timestamp);
+    wchar_t path[MAX_PATH]{};
+    swprintf_s(path, L"RearSilver-Avatar-Suite-Feedback-%04u-%02u-%02uT%02u-%02u-%02u-%03uZ.txt",
+               timestamp.wYear, timestamp.wMonth, timestamp.wDay, timestamp.wHour,
+               timestamp.wMinute, timestamp.wSecond, timestamp.wMilliseconds);
+    OPENFILENAMEW picker{};
+    picker.lStructSize = sizeof(picker);
+    picker.hwndOwner = g_settingsWindow;
+    picker.lpstrFilter = L"Text report (*.txt)\0*.txt\0All files (*.*)\0*.*\0\0";
+    picker.lpstrFile = path;
+    picker.nMaxFile = ARRAYSIZE(path);
+    picker.lpstrDefExt = L"txt";
+    picker.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
+    if (!GetSaveFileNameW(&picker)) return false;
+
+    const std::string report = decodeUriComponent(encodedReport);
+    HANDLE file = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS,
+                              FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return false;
+    constexpr unsigned char bom[] = {0xef, 0xbb, 0xbf};
+    DWORD written = 0;
+    bool succeeded = WriteFile(file, bom, sizeof(bom), &written, nullptr) != FALSE;
+    if (succeeded && !report.empty())
+        succeeded = WriteFile(file, report.data(), static_cast<DWORD>(report.size()), &written, nullptr) != FALSE;
+    CloseHandle(file);
+    return succeeded;
+}
 
 struct StreamSuiteState {
     bool registered = false;
@@ -81,6 +141,46 @@ void saveOpenWithStreamSuite(bool enabled)
         WritePrivateProfileStringW(L"Avatar", L"OpenWithStreamSuite",
                                    enabled ? L"1" : L"0", settings.c_str());
     }
+}
+
+constexpr unsigned kGuidedSetupSchemaVersion = 2;
+constexpr unsigned kGuidedSetupLastStep = 4;
+
+struct GuidedSetupState {
+    bool completed = false;
+    unsigned step = 0;
+    unsigned schemaVersion = kGuidedSetupSchemaVersion;
+};
+
+GuidedSetupState guidedSetupState()
+{
+    GuidedSetupState state;
+    const std::wstring settings = avatarSettingsFilePath();
+    if (settings.empty()) return state;
+    const unsigned storedSchema = GetPrivateProfileIntW(L"Avatar", L"SetupSchemaVersion", 0, settings.c_str());
+    if (storedSchema < kGuidedSetupSchemaVersion) return state;
+    state.completed = GetPrivateProfileIntW(L"Avatar", L"SetupCompleted", 0, settings.c_str()) != 0;
+    state.step = std::min<unsigned>(GetPrivateProfileIntW(L"Avatar", L"SetupStep", 0, settings.c_str()),
+                                    kGuidedSetupLastStep);
+    return state;
+}
+
+void saveGuidedSetupState(const GuidedSetupState &state)
+{
+    const std::wstring settings = avatarSettingsFilePath();
+    if (settings.empty()) return;
+    ensureUnicodeSettingsFile(settings);
+    WritePrivateProfileStringW(L"Avatar", L"SetupCompleted", state.completed ? L"1" : L"0", settings.c_str());
+    WritePrivateProfileStringW(L"Avatar", L"SetupStep", std::to_wstring(state.step).c_str(), settings.c_str());
+    WritePrivateProfileStringW(L"Avatar", L"SetupSchemaVersion", std::to_wstring(state.schemaVersion).c_str(), settings.c_str());
+}
+
+void sendGuidedSetupState()
+{
+    if (!g_webView) return;
+    const GuidedSetupState state = guidedSetupState();
+    g_webView->PostWebMessageAsString((L"setup-state\t" + std::wstring(state.completed ? L"1" : L"0") + L"\t" +
+        std::to_wstring(state.step) + L"\t" + std::to_wstring(state.schemaVersion)).c_str());
 }
 
 StreamSuiteState streamSuiteState()
@@ -254,8 +354,13 @@ void initialiseWebView()
                                                 const std::wstring page(message + 13);
                                                 if (page != L"feedback" && page != L"updates" && page != L"help")
                                                     g_lastSettingsPage = page;
-                                                if (page == L"general")
+                                                if (page == L"general" || page == L"feedback" || page == L"updates")
                                                     sendGeneralState();
+                                            }
+                                            else if (wcscmp(message, L"diagnostics-refresh") == 0) {
+                                                sendGeneralState();
+                                                if (g_ownerWindow && IsWindow(g_ownerWindow))
+                                                    PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             }
                                             else if (wcscmp(message, L"open-stream-suite") == 0) {
                                                 const StreamSuiteState state = streamSuiteState();
@@ -274,6 +379,35 @@ void initialiseWebView()
                                                 ShellExecuteW(g_settingsWindow, L"open",
                                                     L"https://github.com/Off-World-Live/obs-spout2-plugin/releases",
                                                     nullptr, nullptr, SW_SHOWNORMAL);
+                                            else if (wcscmp(message, L"open-logs-folder") == 0) {
+                                                wchar_t temporaryDirectory[MAX_PATH]{};
+                                                if (GetTempPathW(ARRAYSIZE(temporaryDirectory), temporaryDirectory))
+                                                    ShellExecuteW(g_settingsWindow, L"open", temporaryDirectory,
+                                                                  nullptr, nullptr, SW_SHOWNORMAL);
+                                            }
+                                            else if (wcsncmp(message, L"export-diagnostics\t", 19) == 0) {
+                                                const bool exported = exportDiagnosticReport(message + 19);
+                                                g_webView->PostWebMessageAsString(exported ? L"diagnostics-export\t1"
+                                                                                         : L"diagnostics-export\t0");
+                                            }
+                                            else if (wcsncmp(message, L"setup-step\t", 11) == 0) {
+                                                GuidedSetupState state = guidedSetupState();
+                                                state.completed = false;
+                                                state.step = std::min<unsigned>(wcstoul(message + 11, nullptr, 10),
+                                                                                kGuidedSetupLastStep);
+                                                saveGuidedSetupState(state);
+                                                sendGuidedSetupState();
+                                            }
+                                            else if (wcscmp(message, L"setup-complete") == 0 ||
+                                                     wcscmp(message, L"setup-skip") == 0) {
+                                                GuidedSetupState state = guidedSetupState();
+                                                state.completed = true;
+                                                saveGuidedSetupState(state);
+                                                sendGuidedSetupState();
+                                            }
+                                            else if (wcscmp(message, L"setup-reset") == 0) {
+                                                GuidedSetupState state; saveGuidedSetupState(state); sendGuidedSetupState();
+                                            }
                                             else if (wcscmp(message, L"update-current-preset") == 0 &&
                                                      g_ownerWindow && IsWindow(g_ownerWindow))
                                                 PostMessageW(g_ownerWindow, kAvatarSettingsUpdatePresetMessage, 0, 0);
@@ -307,6 +441,7 @@ void initialiseWebView()
                                                 g_webViewReady = true;
                                                 sendPendingPage();
                                                 sendGeneralState();
+                                                sendGuidedSetupState();
                                                 if (g_ownerWindow && IsWindow(g_ownerWindow))
                                                     PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             }

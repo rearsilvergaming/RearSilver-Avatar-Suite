@@ -73,9 +73,10 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .add-effect{margin-top:12px;width:100%}.modal-backdrop{position:fixed;inset:0;z-index:20;display:grid;place-items:center;padding:24px;background:rgba(0,0,0,.72)}.modal-backdrop[hidden]{display:none}.modal{width:min(720px,100%);max-height:calc(100vh - 48px);overflow:auto;background:var(--surface);border:1px solid var(--border);border-radius:15px;padding:20px;box-shadow:0 20px 70px rgba(0,0,0,.55)}.modal-heading{display:flex;justify-content:space-between;align-items:center;gap:12px}.modal-heading h2{margin:0}.effect-choice{display:grid;grid-template-columns:1fr auto;align-items:center;gap:18px;margin-top:12px;padding:16px;background:var(--raised);border:1px solid #344257;border-radius:12px;transition:opacity 120ms ease,border-color 120ms ease}.effect-choice h3{margin:0 0 6px}.effect-choice p{margin:0;color:var(--muted);line-height:1.5}.effect-choice.already-added{opacity:.48;border-color:var(--border)}.effect-choice.already-added button{min-width:116px}
 @property --breath-x{syntax:'<number>';inherits:false;initial-value:1}@property --breath-y{syntax:'<number>';inherits:false;initial-value:1}.preview-stage img.breathing{transform-origin:50% 100%;animation:preview-breath var(--breath-cycle,2500ms) ease-in-out infinite;transition:--breath-x 180ms linear,--breath-y 180ms linear}@keyframes preview-breath{0%,100%{scale:1 1}50%{scale:var(--breath-x,.995) var(--breath-y,1.02)}}
 .preview-stage img.squashing{transform-origin:50% 100%}
+.setup-progress{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;margin-bottom:18px}.setup-progress[hidden],.setup-footer[hidden]{display:none}.setup-progress h2{margin:0 0 6px;font-size:28px}.setup-progress p{margin:0;color:var(--muted);line-height:1.55}.setup-count{text-align:right;color:var(--muted);font-size:12px;white-space:nowrap}.setup-count strong{display:block;margin-bottom:5px;color:var(--cyan);font-size:14px}.setup-footer{display:flex;justify-content:space-between;gap:10px;margin-top:16px}.setup-footer-right{display:flex;gap:10px}.normal-settings-footer{display:flex;justify-content:flex-end;margin-top:16px}.guided-mode .app-shell{display:block}.guided-mode .sidebar{display:none}.guided-mode .shell{padding:24px}.guided-mode .hero,.guided-mode #preset-editor,.guided-mode .normal-settings-footer{display:none}.guided-mode .settings-layout{display:block}.guided-mode #preview-card{display:none!important}.guided-mode.guided-preview .settings-layout{display:grid}.guided-mode.guided-preview #preview-card{display:block!important}.guided-mode .page-column{width:100%}.guided-mode .page{border:1px solid var(--border);border-radius:15px;background:var(--surface);padding:20px}.guided-mode .page>h2:first-child{font-size:20px}.guided-mode .page>.intro{margin-bottom:18px}textarea{width:100%;border:1px solid var(--border);border-radius:9px;background:#0b0f14;color:var(--text);font:13px Sora;padding:12px;resize:vertical}.diagnostic-facts{display:grid;grid-template-columns:repeat(3,minmax(180px,1fr));gap:9px;margin-top:15px}.diagnostic-fact{background:var(--raised);border:1px solid #344257;border-radius:10px;padding:12px}.diagnostic-fact strong,.diagnostic-fact span{display:block}.diagnostic-fact strong{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.04em;margin-bottom:5px}.diagnostic-report{min-height:320px;font:12px Consolas,monospace;line-height:1.5}.privacy-note{padding:12px 14px;border-left:3px solid var(--cyan);background:rgba(8,127,156,.08);color:var(--muted);line-height:1.5}
 @media(max-width:1050px){.settings-layout{grid-template-columns:1fr}.preview-card{position:static;grid-row:1}.preview-stage{max-height:340px}}
 @media(max-width:720px){.layer-heading{grid-template-columns:1fr}.layer-tools{justify-content:flex-start}}
-@media(max-width:760px){.app-shell{grid-template-columns:86px minmax(0,1fr)}.sidebar{padding:12px 9px}.brand-header{height:62px}.nav-label,.sidebar-footer{display:none}.side-nav button{justify-content:center;padding:10px 5px;font-size:0}.nav-icon{width:21px;height:21px;flex-basis:21px}.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid,.built-in-grid{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}.composition-actions{justify-content:flex-start;flex-wrap:wrap}}
+@media(max-width:760px){.app-shell{grid-template-columns:86px minmax(0,1fr)}.sidebar{padding:12px 9px}.brand-header{height:62px}.nav-label,.sidebar-footer{display:none}.side-nav button{justify-content:center;padding:10px 5px;font-size:0}.nav-icon{width:21px;height:21px;flex-basis:21px}.shell{padding:18px}.hero{display:block}.hero button{margin-top:16px}.cards,.control-grid,.built-in-grid,.diagnostic-facts{grid-template-columns:1fr}.setting-row{align-items:stretch;flex-direction:column}.composition-actions{justify-content:flex-start;flex-wrap:wrap}}
 </style>
 </head>
 <body>
@@ -108,6 +109,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <div><h1 id="page-title">Avatar</h1><p id="page-intro">Choose and size the images used by your avatar.</p></div>
     <button id="close">Close</button>
   </header>
+  <div class="setup-progress" id="setup-progress" hidden><div><h2>Guided Setup</h2><p>We’ll walk through Avatar Suite in a sensible order. Optional features can be skipped and changed later.</p></div><div class="setup-count"><strong id="setup-count">Step 1 of 6</strong><span>Your progress is saved automatically.</span></div></div>
   <div class="preset-editor" id="preset-editor">
     <div><strong>Editing: <span id="active-preset-name">Default Avatar</span></strong><div class="preset-editor-copy" id="preset-dirty-copy">Saved preset</div></div>
     <div class="preset-editor-actions"><button id="revert-preset" disabled>Revert changes</button><button class="primary" id="update-preset" disabled>Update preset</button></div>
@@ -245,8 +247,8 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
   </section>
   <section class="panel page" data-page="output" hidden><h2>Output</h2><p class="intro">Choose how you currently send Avatar Suite into OBS. This changes the relevant setup controls without altering the fixed Game Capture renderer.</p><div class="stack"><article class="card"><h3>Capture method</h3><label for="capture-method">Method</label><select id="capture-method"><option value="0">Game Capture — fixed transparent output</option><option value="1">Window Capture — visible application window</option><option value="2">Spout2 — requires OBS plugin</option></select><p class="status" id="capture-method-help">Game Capture receives the stable fixed-size renderer.</p></article><article class="card" id="window-capture-note" hidden><h3>Window Capture sizing</h3><p>OBS follows the application client size. The restored window remains 16:9; maximise it or press F11 for clean borderless fullscreen. Press F11, Escape, or double-click the renderer to restore it.</p></article><article class="card" id="spout-setup" hidden><h3>Spout2 setup</h3><p>Spout2 requires the separate OBS Spout2 plugin. Install it, add a <strong>Spout2 Capture</strong> source, select <strong>RearSilver Avatar Suite</strong>, then choose <strong>Premultiplied Alpha</strong>.</p><div class="setting-row"><div class="file-state"><div class="file-name">Sender: RearSilver Avatar Suite</div><div class="status" id="spout-status">Starting sender…</div></div><button class="primary" id="get-spout-plugin">Get OBS Spout2 plugin</button></div></article></div></section>
   <section class="panel page" data-page="general" hidden><h2>General</h2><p class="intro">Manage how Avatar Suite works alongside RearSilver Stream Suite.</p><div class="cards"><article class="card"><h3>Stream Suite companion</h3><p>Stream Suite can own the launch relationship between both applications without adding Avatar Suite to Windows startup.</p><div class="setting-row"><div class="file-state"><div class="file-name" id="stream-suite-state">Checking for Stream Suite…</div><div class="status" id="stream-suite-detail">Looking for a registered Control Hub installation.</div></div><button class="primary" id="open-stream-suite" disabled>Open Stream Suite</button></div></article><article class="card"><h3>Open with Stream Suite</h3><p id="stream-suite-integration-copy">Checking whether the installed Stream Suite supports named companion applications.</p><div class="setting-row"><label style="margin:0"><input id="open-with-stream-suite" type="checkbox" disabled> Open Avatar Suite with Stream Suite</label><span class="tag" id="stream-suite-integration-status">Checking support</span></div></article></div></section>
-  <section class="panel page" data-page="feedback" hidden><h2>Feedback &amp; Diagnostics</h2><p class="intro">Describe an issue and export the information needed to investigate it. This page will use the same privacy-first workflow as Stream Suite.</p><div class="cards"><article class="card"><h3>Your feedback</h3><p>Record what you were doing, what happened, and whether the issue can be reproduced.</p><span class="tag">Feedback workflow next</span></article><article class="card"><h3>Diagnostic package</h3><p>Review renderer, capture, microphone, WebView2, and application logs before choosing whether to export them.</p><span class="tag">Nothing sent automatically</span></article></div></section>
-  <section class="panel page" data-page="updates" hidden><h2>Updates</h2><p class="intro">Review the installed Avatar Suite version and manage updates using the same workflow as Stream Suite.</p><div class="cards"><article class="card"><h3>Software updates</h3><p>Update checking, release notes, downloading, and installer handoff will appear here.</p><span class="tag">Updater integration next</span></article><article class="card"><h3>Stream Suite companion</h3><p>Avatar Suite can be registered as a companion application and opened with Stream Suite.</p><span class="tag">Companion integration next</span></article></div></section>
+  <section class="panel page" data-page="feedback" hidden><h2>Feedback &amp; Diagnostics</h2><p class="intro">Describe what happened and export the information needed to investigate it. Everything remains local until you explicitly copy or export it.</p><article class="card"><h3>Your feedback</h3><div class="control-grid"><div><label for="feedback-category">Category</label><select id="feedback-category"><option>Bug or crash</option><option>Setup or discoverability</option><option>Avatar images or layers</option><option>Microphone or reactions</option><option>Effects or animation</option><option>OBS capture or Spout2</option><option>Automation integration</option><option>Performance</option><option>Accessibility</option><option>Suggestion</option></select></div><div><label for="feedback-reproducible">Can you reproduce it?</label><select id="feedback-reproducible"><option>Not sure</option><option>Yes</option><option>No</option></select></div><div><label for="feedback-issue-date">Date the issue occurred</label><input id="feedback-issue-date" type="date"><p class="status">Used to identify relevant local logs and crash information.</p></div><div><label for="feedback-summary">Summary</label><input id="feedback-summary" type="text" placeholder="A short description"></div><div><label for="feedback-trying">What were you trying to do?</label><textarea id="feedback-trying" rows="5"></textarea></div><div><label for="feedback-first-look">Where did you first look?</label><textarea id="feedback-first-look" rows="5"></textarea></div><div><label for="feedback-expected">What did you expect?</label><textarea id="feedback-expected" rows="5"></textarea></div><div><label for="feedback-actual">What actually happened?</label><textarea id="feedback-actual" rows="5"></textarea></div></div><label for="feedback-steps" style="margin-top:14px">Reproduction steps</label><textarea id="feedback-steps" rows="6" placeholder="1. Open…&#10;2. Select…&#10;3. Observe…"></textarea><label for="feedback-additional" style="margin-top:14px">Additional feedback</label><textarea id="feedback-additional" rows="5"></textarea></article><article class="card" style="margin-top:12px"><h3>Diagnostic summary</h3><p>Refresh immediately before exporting so connection and feature states are current.</p><div class="diagnostic-facts"><div class="diagnostic-fact"><strong>Application</strong><span>RearSilver Avatar Suite</span></div><div class="diagnostic-fact"><strong>Build</strong><span id="diagnostic-build">Development build</span></div><div class="diagnostic-fact"><strong>Renderer</strong><span>1920 × 1080 fixed canvas</span></div><div class="diagnostic-fact"><strong>Capture method</strong><span id="diagnostic-capture">—</span></div><div class="diagnostic-fact"><strong>Spout2 output</strong><span id="diagnostic-spout">—</span></div><div class="diagnostic-fact"><strong>Microphone</strong><span id="diagnostic-microphone">—</span></div><div class="diagnostic-fact"><strong>WebSocket server</strong><span id="diagnostic-websocket">—</span></div><div class="diagnostic-fact"><strong>Active preset</strong><span id="diagnostic-preset">—</span></div><div class="diagnostic-fact"><strong>Stream Suite companion</strong><span id="diagnostic-stream-suite">—</span></div></div><p class="privacy-note">Text reports and logs exclude credentials, microphone device names, local image paths, and image contents. Nothing is sent automatically: you choose what to copy or export and whether to share it.</p><div class="setting-actions"><button class="primary" id="refresh-diagnostics">Refresh diagnostics</button><button id="preview-diagnostics" disabled>Preview report</button><button id="copy-diagnostics" disabled>Copy report</button><button id="export-diagnostics" disabled>Export report…</button><button id="open-diagnostic-logs">Open logs folder</button></div><p class="status" id="diagnostic-status">Collecting initial diagnostics…</p><textarea class="diagnostic-report" id="diagnostic-report" readonly hidden></textarea></article></section>
+  <section class="panel page" data-page="updates" hidden><h2>Updates</h2><p class="intro">Review the installed Avatar Suite version and manage updates using the same workflow as Stream Suite.</p><div class="cards"><article class="card"><h3>Software updates</h3><p>Update checking, release notes, downloading, and installer handoff will appear here.</p><span class="tag">Updater integration next</span></article><article class="card"><h3>Stream Suite companion</h3><p id="updates-stream-suite-copy">Checking the registered Stream Suite installation and companion support.</p><span class="tag" id="updates-stream-suite-status">Checking integration</span></article></div></section>
   <section class="panel page" data-page="help" hidden><h2>Help</h2><p class="intro">Find setup guidance and local support information for Avatar Suite.</p><div class="cards"><article class="card"><h3>Documentation</h3><p>Capture setup, avatar configuration, effects, and troubleshooting guidance will be available here.</p></article><article class="card"><h3>Application information</h3><p>Version, build, licences, and application data locations will be collected here.</p></article></div></section>
   </div>
   <aside class="card preview-card" id="preview-card">
@@ -255,6 +257,8 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <div class="preview-stage"><img id="avatar-preview" alt="Selected avatar preview"><div class="preview-empty" id="preview-empty">Choose a primary image to begin.</div></div>
   </aside>
   </div>
+  <div class="setup-footer" id="setup-footer" hidden><button id="setup-back">Back</button><div class="setup-footer-right"><button id="setup-skip">Skip for now</button><button class="primary" id="setup-next">Continue</button></div></div>
+  <div class="normal-settings-footer"><button id="run-guided-setup">Run guided setup again</button></div>
 </main>
 </div>
 <div class="modal-backdrop" id="effect-modal" hidden><div class="modal" role="dialog" aria-modal="true" aria-labelledby="effect-modal-title"><div class="modal-heading"><div><h2 id="effect-modal-title">Add effect</h2><p class="intro">Choose an effect to add to the current preset.</p></div><button id="close-effect-modal">Close</button></div><div class="effect-choice" data-choice="bounce"><div><h3>Reaction bounce</h3><p>Lift the avatar once whenever microphone input begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="breathing"><div><h3>Breathing</h3><p>Add continuous subtle expansion during idle, reaction, or both states.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="squash"><div><h3>Squash and stretch</h3><p>Add a bottom-anchored cartoon deformation whenever microphone reaction begins.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="shake"><div><h3>Shake</h3><p>Continuously rattle the avatar during microphone reaction and settle smoothly afterwards.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="brightness"><div><h3>Idle/Reaction brightness</h3><p>Dim the avatar while idle and brighten it smoothly for microphone reactions.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="float"><div><h3>Float</h3><p>Move continuously during idle, reaction, or both with optional horizontal drift.</p></div><button class="primary">Add</button></div><div class="effect-choice" data-choice="tilt"><div><h3>Tilt</h3><p>Lean for the microphone reaction and return smoothly when it ends.</p></div><button class="primary">Add</button></div></div></div>
@@ -293,6 +297,11 @@ function showPage(name){
   document.querySelector('.settings-layout').classList.toggle('tools-page',fullWidthPage);
   window.chrome.webview.postMessage(`page-changed\t${name}`);
   if(name==='websocket'&&typeof checkWebSocketServer==='function')checkWebSocketServer();
+  if(name==='feedback'){
+    if(typeof checkWebSocketServer==='function')checkWebSocketServer();
+    window.chrome.webview.postMessage('diagnostics-refresh');
+    if(typeof syncDiagnosticFacts==='function')syncDiagnosticFacts();
+  }
 }
 document.querySelectorAll('.tab').forEach(tab=>tab.onclick=()=>showPage(tab.dataset.page));
 const updatePresetButton=document.getElementById('update-preset');
@@ -543,6 +552,7 @@ function renderLayers(){
 }
 document.getElementById('open-stream-suite').onclick=()=>window.chrome.webview.postMessage('open-stream-suite');
 const openWithStreamSuite=document.getElementById('open-with-stream-suite');
+const diagnosticRuntime={streamSuite:'Checking',spout:'Checking',websocket:'Checking'};
 openWithStreamSuite.onchange=()=>window.chrome.webview.postMessage(`open-with-stream-suite\t${openWithStreamSuite.checked?'1':'0'}`);
 const backgroundMode=document.getElementById('background-mode');
 const captureMethod=document.getElementById('capture-method');
@@ -1184,7 +1194,12 @@ window.chrome.webview.addEventListener('message',event=>{
   const fields=message.split('\t');
   const [type,value='']=message.split('\t',2);
   const status=document.getElementById('avatar-status');
-  if(type==='navigate-page'){
+  if(type==='setup-state'){
+    setupState={completed:fields[1]==='1',step:Number(fields[2]||0),schemaVersion:Number(fields[3]||1)};
+    renderSetup();
+  }else if(type==='diagnostics-export'){
+    diagnosticStatus.textContent=value==='1'?'Report saved successfully.':'Export cancelled or the report could not be saved.';
+  }else if(type==='navigate-page'){
     showPage(value);
   }else if(type==='websocket-state'){
     const listening=fields[1]==='1';const clients=Number(fields[2]||0);const messages=Number(fields[3]||0);const last=fields[4]||'';
@@ -1193,6 +1208,8 @@ window.chrome.webview.addEventListener('message',event=>{
     document.getElementById('websocket-last-command').textContent=last?`Last command received: ${last}`:'No command received yet.';
     document.getElementById('websocket-status').textContent=!listening?'The local server could not start.':clients?`${clients} automation client${clients===1?' is':'s are'} connected.`:'Listening, but no automation client is connected.';
     document.getElementById('websocket-status-tag').textContent=!listening?'UNAVAILABLE':clients?'CONNECTED':'LISTENING';
+    diagnosticRuntime.websocket=!listening?'Unavailable':clients?`Connected · ${clients} client${clients===1?'':'s'}`:'Listening';
+    syncDiagnosticFacts();
   }else if(type==='layer-list-reset'){
     pendingLayers=[];
   }else if(type==='layer-group'){
@@ -1222,6 +1239,7 @@ window.chrome.webview.addEventListener('message',event=>{
     pendingPresetAction=fields.slice(1);presetSwitchModal.hidden=false;
   }else if(type==='preset-state'){
     activePresetId=fields[1]||'default';activePresetDirty=fields[3]==='1';setPresetState(fields[2]||'Default Avatar',activePresetDirty);
+    syncDiagnosticFacts();
   }else if(type==='preset-dirty'){
     activePresetDirty=value==='1';setPresetState('',activePresetDirty);const active=pendingPresets.find(preset=>preset.id===activePresetId);if(active){active.dirty=activePresetDirty;renderPresets()}
   }else if(type==='stream-suite-state'){
@@ -1239,12 +1257,17 @@ window.chrome.webview.addEventListener('message',event=>{
     document.getElementById('stream-suite-integration-copy').textContent=state[3];
     document.getElementById('open-stream-suite').disabled=!ready;
     openWithStreamSuite.disabled=!ready;
+    diagnosticRuntime.streamSuite=state[2];
+    document.getElementById('updates-stream-suite-copy').textContent=ready?'The installed Stream Suite supports Avatar Suite and can launch it as an independent companion application.':state[3];
+    document.getElementById('updates-stream-suite-status').textContent=ready?'Integration available':state[2];
+    syncDiagnosticFacts();
   }else if(type==='open-with-stream-suite'){
     openWithStreamSuite.checked=value==='1';
   }else if(type==='capture-method'){
-    captureMethod.value=value;configureBackgroundChoices();
+    captureMethod.value=value;configureBackgroundChoices();syncDiagnosticFacts();
   }else if(type==='spout-status'){
-    document.getElementById('spout-status').textContent=value==='2'?'Active — ready for OBS':value==='1'?'Starting sender…':value==='3'?'Unavailable — check graphics compatibility':'Inactive';
+    const spoutText=value==='2'?'Active — ready for OBS':value==='1'?'Starting sender…':value==='3'?'Unavailable — check graphics compatibility':'Inactive';
+    document.getElementById('spout-status').textContent=spoutText;diagnosticRuntime.spout=spoutText;syncDiagnosticFacts();
   }else if(type==='background-mode'){
     backgroundMode.value=value;updateBackgroundUi();
   }else if(type==='background-solid-colour'){
@@ -1355,7 +1378,7 @@ window.chrome.webview.addEventListener('message',event=>{
     document.getElementById('microphone-level').style.width=`${level}%`;
     microphoneMeter.setAttribute('aria-valuenow',String(Math.round(level)));
   }else if(type==='microphone-status'){
-    document.getElementById('microphone-status').textContent=value;
+    document.getElementById('microphone-status').textContent=value;syncDiagnosticFacts();
   }else if(type==='reaction-threshold'){
     thresholdControl.value=value;
     updateThresholdUi();
@@ -1578,6 +1601,73 @@ window.chrome.webview.addEventListener('message',event=>{
   }
   updatePreview();
 });
+const setupSteps=[
+  {page:'output',title:'Output',copy:'Choose how OBS will capture Avatar Suite.'},
+  {page:'avatar',title:'Avatar images',copy:'Choose the resting and reaction artwork and adjust its size while watching the preview.',preview:true},
+  {page:'microphone',title:'Microphone and voice detection',copy:'Select an input, confirm that the live meter responds, then calibrate room noise and tune reaction detection.'},
+  {page:'blink',title:'Blink and motion',copy:'Add optional blink artwork and review automatic blinking in the preview.',preview:true},
+  {page:'effects',title:'Motion and finish',copy:'Preview motion effects, then finish setup. Every change has already been saved.',preview:true}
+];
+let setupState={completed:true,step:0,schemaVersion:2};
+const setupProgress=document.getElementById('setup-progress'),setupFooter=document.getElementById('setup-footer');
+function renderSetup(){
+  setupState.step=Math.max(0,Math.min(setupSteps.length-1,setupState.step));
+  setupProgress.hidden=setupState.completed;
+  setupFooter.hidden=setupState.completed;
+  document.body.classList.toggle('guided-mode',!setupState.completed);
+  document.body.classList.toggle('guided-preview',!setupState.completed&&Boolean(setupSteps[setupState.step]?.preview));
+  if(setupState.completed){document.querySelectorAll('.page').forEach(page=>{const heading=page.querySelector('h2'),intro=page.querySelector('.intro');if(heading&&page.dataset.setupHeading)heading.textContent=page.dataset.setupHeading;if(intro&&page.dataset.setupIntro)intro.textContent=page.dataset.setupIntro});showPage('avatar');return}
+  const step=setupSteps[setupState.step];showPage(step.page);
+  const page=document.querySelector(`.page[data-page="${step.page}"]`),heading=page.querySelector('h2'),intro=page.querySelector('.intro');
+  if(heading&&!page.dataset.setupHeading)page.dataset.setupHeading=heading.textContent;if(intro&&!page.dataset.setupIntro)page.dataset.setupIntro=intro.textContent;
+  if(heading)heading.textContent=step.title;if(intro)intro.textContent=step.copy;
+  document.getElementById('setup-count').textContent=`Step ${setupState.step+1} of ${setupSteps.length}`;
+  document.getElementById('setup-back').disabled=setupState.step===0;
+  document.getElementById('setup-next').textContent=setupState.step===setupSteps.length-1?'Finish setup':'Continue';
+  document.getElementById('setup-skip').hidden=setupState.step===setupSteps.length-1;
+}
+function setSetupStep(step){window.chrome.webview.postMessage(`setup-step\t${step}`)}
+document.getElementById('setup-back').onclick=()=>{if(setupState.step>0)setSetupStep(setupState.step-1)};
+document.getElementById('setup-next').onclick=()=>{if(setupState.step<setupSteps.length-1)setSetupStep(setupState.step+1);else window.chrome.webview.postMessage('setup-complete')};
+document.getElementById('setup-skip').onclick=()=>window.chrome.webview.postMessage('setup-skip');
+document.getElementById('run-guided-setup').onclick=()=>window.chrome.webview.postMessage('setup-reset');
+
+const diagnosticReport=document.getElementById('diagnostic-report'),diagnosticStatus=document.getElementById('diagnostic-status');
+const diagnosticButtons=['preview-diagnostics','copy-diagnostics','export-diagnostics'].map(id=>document.getElementById(id));
+const diagnosticIssueDate=document.getElementById('feedback-issue-date'),diagnosticToday=new Date();
+diagnosticIssueDate.value=`${diagnosticToday.getFullYear()}-${String(diagnosticToday.getMonth()+1).padStart(2,'0')}-${String(diagnosticToday.getDate()).padStart(2,'0')}`;
+diagnosticIssueDate.max=diagnosticIssueDate.value;
+function feedbackValue(id){return document.getElementById(id).value.trim()||'Not provided'}
+function syncDiagnosticFacts(){
+  const capture=document.getElementById('capture-method').selectedOptions[0]?.textContent||'Unknown';
+  const microphone=document.getElementById('microphone-status').textContent||'Unknown';
+  const preset=document.getElementById('active-preset-name').textContent||'Unknown';
+  document.getElementById('diagnostic-capture').textContent=capture;
+  document.getElementById('diagnostic-spout').textContent=diagnosticRuntime.spout;
+  document.getElementById('diagnostic-microphone').textContent=microphone;
+  document.getElementById('diagnostic-websocket').textContent=diagnosticRuntime.websocket;
+  document.getElementById('diagnostic-preset').textContent=preset;
+  document.getElementById('diagnostic-stream-suite').textContent=diagnosticRuntime.streamSuite;
+}
+function buildDiagnosticReport(){
+  syncDiagnosticFacts();
+  const capture=document.getElementById('diagnostic-capture').textContent;
+  const microphone=document.getElementById('diagnostic-microphone').textContent;
+  const preset=document.getElementById('diagnostic-preset').textContent;
+  const report=[
+    'RearSilver Avatar Suite feedback report',`Generated: ${new Date().toISOString()}`,'',
+    'FEEDBACK',`Issue date: ${feedbackValue('feedback-issue-date')}`,`Category: ${feedbackValue('feedback-category')}`,`Reproducible: ${feedbackValue('feedback-reproducible')}`,`Summary: ${feedbackValue('feedback-summary')}`,`Trying to do:\n${feedbackValue('feedback-trying')}`,`Where first looked:\n${feedbackValue('feedback-first-look')}`,`Expected: ${feedbackValue('feedback-expected')}`,`Actual: ${feedbackValue('feedback-actual')}`,`Steps:\n${feedbackValue('feedback-steps')}`,`Additional feedback:\n${feedbackValue('feedback-additional')}`,'',
+    'APPLICATION STATE','Application: RearSilver Avatar Suite','Build: Development build','Renderer: 1920 x 1080 fixed canvas',`Active preset: ${preset}`,`Preset has unsaved changes: ${activePresetDirty?'Yes':'No'}`,`Capture method: ${capture}`,`Spout2 output: ${diagnosticRuntime.spout}`,`Microphone status: ${microphone}`,`WebSocket server: ${diagnosticRuntime.websocket}`,`WebSocket clients: ${document.getElementById('websocket-client-count').textContent}`,`Messages received: ${document.getElementById('websocket-message-count').textContent}`,`Last automation command: ${document.getElementById('websocket-last-command').textContent}`,`Stream Suite companion: ${diagnosticRuntime.streamSuite}`,`Additional layers: ${document.querySelectorAll('#layer-list .layer-card').length}`,`Configured primary effects: ${document.querySelectorAll('#effect-stack .effect-card:not([hidden])').length}`,'',
+    'RUNTIME',`WebView user agent: ${navigator.userAgent}`,`Display scale: ${window.devicePixelRatio}`,'','PRIVACY','Nothing was submitted automatically. This report excludes credentials, microphone device names, local image paths, and image contents.'
+  ].join('\n');
+  diagnosticReport.value=report;diagnosticStatus.textContent='Diagnostics refreshed. Review the report before sharing it.';diagnosticButtons.forEach(button=>button.disabled=false);return report;
+}
+document.getElementById('refresh-diagnostics').onclick=()=>{diagnosticStatus.textContent='Refreshing live application state…';checkWebSocketServer();window.chrome.webview.postMessage('diagnostics-refresh');setTimeout(buildDiagnosticReport,500)};
+document.getElementById('preview-diagnostics').onclick=()=>{diagnosticReport.hidden=!diagnosticReport.hidden;document.getElementById('preview-diagnostics').textContent=diagnosticReport.hidden?'Preview report':'Hide preview'};
+document.getElementById('copy-diagnostics').onclick=async()=>{try{await navigator.clipboard.writeText(buildDiagnosticReport());diagnosticStatus.textContent='Report copied to the clipboard.'}catch(error){diagnosticStatus.textContent='The report could not be copied. Preview it and copy the text manually.'}};
+document.getElementById('export-diagnostics').onclick=()=>{diagnosticStatus.textContent='Choose where to save the report.';window.chrome.webview.postMessage(`export-diagnostics\t${encodeURIComponent(buildDiagnosticReport())}`)};
+document.getElementById('open-diagnostic-logs').onclick=()=>window.chrome.webview.postMessage('open-logs-folder');
+buildDiagnosticReport();
 window.chrome.webview.postMessage('avatar-settings-ready');
 </script>
 </body>
