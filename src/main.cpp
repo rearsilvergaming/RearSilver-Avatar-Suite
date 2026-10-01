@@ -1394,6 +1394,63 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
     const std::wstring id = first == std::wstring::npos ? L"" : command.substr(first + 1, second - first - 1);
     const std::wstring value = second == std::wstring::npos ? L"" : command.substr(second + 1);
     layer_model::Composition composition = layer_model::loadDraftComposition();
+    if (action == L"builtin-add") {
+        const auto assetPath=[](const wchar_t *file){return executableDirectory()+L"\\built-in-layers\\"+file;};
+        const auto required = id == L"cartoon-eyes" || id == L"googly-eyes" ? 4u :
+                              id == L"blush" || id == L"tears" ? 2u : 1u;
+        if (composition.layers.size()+required>layer_model::kMaximumLayers) {
+            MessageBoxW(g_mainWindow,L"This template would exceed the 16-layer preset limit.",
+                        L"RearSilver Avatar Suite — Built-in layers",MB_OK|MB_ICONINFORMATION); return;
+        }
+        auto addLayer=[&](const std::wstring &name,const wchar_t *file,const std::wstring &purpose,
+                          int x,int y,int scale){
+            const std::wstring managed=preset_store::importPngAsset(assetPath(file));
+            if(managed.empty()) throw E_FAIL;
+            auto layer=layer_model::makeLayer(name,managed); layer.purpose=purpose; layer.positionX=x;
+            layer.positionY=y; layer.scaleX=scale; layer.scaleY=scale; composition.layers.push_back(layer);
+            return layer.id;
+        };
+        auto addRootLayer=[&](const std::wstring &layerId){composition.rootOrder.insert(composition.rootOrder.begin(),
+            {layer_model::StackItemType::Layer,layerId});};
+        try {
+            if (id==L"cartoon-eyes" || id==L"googly-eyes") {
+                const bool cartoon=id==L"cartoon-eyes";
+                const wchar_t *housingLeft=cartoon?L"cartoon-eyes-left.png":L"googly-eye.png";
+                const wchar_t *housingRight=cartoon?L"cartoon-eyes-right.png":L"googly-eye.png";
+                const wchar_t *pupilLeft=cartoon?L"cartoon-eyes-pupil-left.png":L"googly-pupil.png";
+                const wchar_t *pupilRight=cartoon?L"cartoon-eyes-pupil-right.png":L"googly-pupil.png";
+                for(int side=0;side<2;++side){const bool left=side==0;auto group=layer_model::makeGroup(left?L"Left Eye":L"Right Eye");
+                    group.positionX=left?-85:85;group.positionY=-70;group.scaleX=70;group.scaleY=70;
+                    const auto housing=addLayer(left?L"Left eye housing":L"Right eye housing",left?housingLeft:housingRight,L"eyes",0,0,100);
+                    const auto pupil=addLayer(left?L"Left pupil":L"Right pupil",left?pupilLeft:pupilRight,L"eyes",0,0,100);
+                    auto pupilLayer=std::find_if(composition.layers.begin(),composition.layers.end(),[&](const auto &item){return item.id==pupil;});
+                    auto movement=layer_model::makeLocalEffect(layer_model::LocalEffectType::BoundedMovement);
+                    movement.amountX=cartoon?12:10;movement.amountY=8;movement.cycleMs=3200;movement.activeDuring=0;
+                    pupilLayer->effects.push_back(movement);group.layerOrder={pupil,housing};composition.groups.push_back(group);
+                    composition.rootOrder.insert(composition.rootOrder.begin(),{layer_model::StackItemType::Group,group.id});}
+            } else if (id==L"blush" || id==L"tears") {
+                auto group=layer_model::makeGroup(id==L"blush"?L"Blush":L"Tears");group.positionY=id==L"blush"?40:10;
+                const auto left=addLayer(id==L"blush"?L"Left blush":L"Left tears",id==L"blush"?L"blush-left.png":L"tears-left.png",L"effect",-85,0,100);
+                const auto right=addLayer(id==L"blush"?L"Right blush":L"Right tears",id==L"blush"?L"blush-right.png":L"tears-right.png",L"effect",85,0,100);
+                group.layerOrder={left,right};composition.groups.push_back(group);composition.rootOrder.insert(composition.rootOrder.begin(),{layer_model::StackItemType::Group,group.id});
+            } else if (id==L"reaction-heart") {
+                const auto layerId=addLayer(L"Reaction heart",L"heart-empty.png",L"effect",210,-170,180);
+                auto layer=std::find_if(composition.layers.begin(),composition.layers.end(),[&](const auto &item){return item.id==layerId;});
+                auto artwork=layer_model::makeLocalEffect(layer_model::LocalEffectType::ArtworkStateChange);
+                artwork.imagePath=preset_store::importPngAsset(assetPath(L"heart-full.png"));artwork.imageDisplayName=L"heart-full.png";artwork.activeDuring=1;
+                layer->effects.push_back(artwork);addRootLayer(layerId);
+            } else {
+                const wchar_t *file=id==L"star"?L"star.png":id==L"sweat"?L"sweat-droplet.png":L"zzz.png";
+                const std::wstring name=id==L"star"?L"Star":id==L"sweat"?L"Sweat drop":L"Zzz";
+                const int scale=id==L"star"?500:id==L"sweat"?180:250;
+                const auto layerId=addLayer(name,file,L"effect",210,-160,scale);addRootLayer(layerId);
+            }
+            if(!layer_model::saveDraftComposition(composition))throw E_FAIL;
+            reloadDraftLayers();postAvatarSettingsMessage(L"preset-dirty\t1");sendLayerState();
+        } catch (...) { MessageBoxW(g_mainWindow,L"The built-in template could not be added.",
+            L"RearSilver Avatar Suite — Built-in layers",MB_OK|MB_ICONERROR); }
+        return;
+    }
     auto updateEffect = [&](std::vector<layer_model::LocalEffect> &effects, const std::wstring &effectAction) {
         const size_t separator = value.find(L'|');
         const std::wstring effectId = separator == std::wstring::npos ? value : value.substr(0, separator);

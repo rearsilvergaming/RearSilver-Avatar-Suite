@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(RearSilverAvatarSuite LANGUAGES CXX)
+file(GLOB BUILT_IN_LAYER_PNGS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/Built In Layers/*.png")
 set(SPOUT2_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/spout2/SPOUTSDK")
 add_library(RearSilverSpout2 STATIC
   "${SPOUT2_ROOT}/SpoutDirectX/SpoutDX/SpoutDX.cpp"
@@ -30,6 +31,8 @@ target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler
   RearSilverSpout2
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
 add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
+  COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/built-in-layers"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${BUILT_IN_LAYER_PNGS} "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/built-in-layers"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/bin/x64/WebView2Loader.dll"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>"
@@ -74,7 +77,8 @@ add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-tools.png"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Settings.png"
-    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-settings.png")
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-settings.png"
+  COMMAND_EXPAND_LISTS)
 
 # Preserve Diagnostic 18 as the known-good control while the production renderer is integrated.
 add_executable(RearSilverAvatarDiagnostic18 WIN32 EXCLUDE_FROM_ALL src/sdl_diagnostic.cpp)
