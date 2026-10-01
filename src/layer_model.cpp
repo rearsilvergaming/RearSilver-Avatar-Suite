@@ -39,6 +39,82 @@ bool groupFlag(const std::wstring &id, const wchar_t *field, bool fallback) {
 bool writeGroup(const std::wstring &id, const wchar_t *field, const std::wstring &value) {
     return preset_store::saveDraftValue(groupKey(id, field).c_str(), value);
 }
+const wchar_t *effectTypeName(LocalEffectType type) {
+    switch (type) {
+    case LocalEffectType::Sway: return L"sway";
+    case LocalEffectType::BoundedMovement: return L"bounded-movement";
+    case LocalEffectType::Orbit: return L"orbit";
+    case LocalEffectType::LocalPulse: return L"local-pulse";
+    case LocalEffectType::LocalSpin: return L"local-spin";
+    case LocalEffectType::ReactionNudge: return L"reaction-nudge";
+    case LocalEffectType::StateVisibility: return L"state-visibility";
+    case LocalEffectType::DangleSpring: return L"dangle-spring";
+    case LocalEffectType::Flutter: return L"flutter";
+    }
+    return L"sway";
+}
+bool parseEffectType(const std::wstring &name, LocalEffectType &type) {
+    if (name == L"sway") type = LocalEffectType::Sway;
+    else if (name == L"bounded-movement") type = LocalEffectType::BoundedMovement;
+    else if (name == L"orbit") type = LocalEffectType::Orbit;
+    else if (name == L"local-pulse") type = LocalEffectType::LocalPulse;
+    else if (name == L"local-spin") type = LocalEffectType::LocalSpin;
+    else if (name == L"reaction-nudge") type = LocalEffectType::ReactionNudge;
+    else if (name == L"state-visibility") type = LocalEffectType::StateVisibility;
+    else if (name == L"dangle-spring") type = LocalEffectType::DangleSpring;
+    else if (name == L"flutter") type = LocalEffectType::Flutter;
+    else return false;
+    return true;
+}
+std::wstring effectKey(const std::wstring &ownerKind, const std::wstring &ownerId,
+                       const std::wstring &effectId, const wchar_t *field) {
+    return ownerKind + L"." + ownerId + L".Effect." + effectId + L"." + field;
+}
+int effectInteger(const std::wstring &kind, const std::wstring &owner, const std::wstring &id,
+                  const wchar_t *field, int fallback, int low, int high) {
+    const std::wstring value = preset_store::loadDraftValue(effectKey(kind, owner, id, field).c_str());
+    return value.empty() ? fallback : std::clamp(_wtoi(value.c_str()), low, high);
+}
+std::vector<LocalEffect> loadEffects(const std::wstring &kind, const std::wstring &owner,
+                                     const std::wstring &order) {
+    std::vector<LocalEffect> effects;
+    std::set<LocalEffectType> seenTypes;
+    for (const std::wstring &id : split(order)) {
+        const std::wstring type = preset_store::loadDraftValue(effectKey(kind, owner, id, L"Type").c_str());
+        LocalEffect effect; effect.id = id;
+        if (!parseEffectType(type, effect.type) || !seenTypes.insert(effect.type).second) continue;
+        effect.enabled = effectInteger(kind, owner, id, L"Enabled", 1, 0, 1) != 0;
+        const int minimumAmount = effect.type == LocalEffectType::ReactionNudge ? -512 : 0;
+        effect.amountX = effectInteger(kind, owner, id, L"AmountX", effect.type == LocalEffectType::Sway ? 8 : 40, minimumAmount, 512);
+        effect.amountY = effectInteger(kind, owner, id, L"AmountY", 25, minimumAmount, 512);
+        effect.cycleMs = effectInteger(kind, owner, id, L"CycleMs", effect.type == LocalEffectType::Sway ? 2400 : 3200, 200, 20000);
+        effect.reactionBoost = effectInteger(kind, owner, id, L"ReactionBoost", 25, 0, 300);
+        effect.pivot = effectInteger(kind, owner, id, L"Pivot", 0, 0, 9);
+        effect.activeDuring = effectInteger(kind, owner, id, L"ActiveDuring", 2, 0, 2);
+        effects.push_back(std::move(effect));
+    }
+    return effects;
+}
+bool saveEffects(const std::wstring &kind, const std::wstring &owner,
+                 const std::vector<LocalEffect> &effects, std::wstring &order) {
+    bool ok = true; std::set<std::wstring> ids;
+    for (const LocalEffect &effect : effects) {
+        if (effect.id.empty() || effect.id.find_first_of(L",.\\/") != std::wstring::npos || !ids.insert(effect.id).second) return false;
+        if (!order.empty()) order += L','; order += effect.id;
+        const auto save = [&](const wchar_t *field, const std::wstring &value) {
+            return preset_store::saveDraftValue(effectKey(kind, owner, effect.id, field).c_str(), value);
+        };
+        ok = save(L"Type", effectTypeName(effect.type)) && ok;
+        ok = save(L"Enabled", effect.enabled ? L"1" : L"0") && ok;
+        ok = save(L"AmountX", std::to_wstring(effect.amountX)) && ok;
+        ok = save(L"AmountY", std::to_wstring(effect.amountY)) && ok;
+        ok = save(L"CycleMs", std::to_wstring(effect.cycleMs)) && ok;
+        ok = save(L"ReactionBoost", std::to_wstring(effect.reactionBoost)) && ok;
+        ok = save(L"Pivot", std::to_wstring(effect.pivot)) && ok;
+        ok = save(L"ActiveDuring", std::to_wstring(effect.activeDuring)) && ok;
+    }
+    return ok;
+}
 }
 
 std::vector<Layer> loadDraftLayers() {
@@ -83,6 +159,24 @@ std::vector<Layer> loadDraftLayers() {
         layer.eyeRangeY = integer(id, L"EyeRangeY", 25, 0, 512);
         layer.eyeCycleMs = integer(id, L"EyeCycleMs", 3200, 500, 20000);
         layer.eyeActiveDuring = integer(id, L"EyeActiveDuring", 0, 0, 2);
+        layer.effects = loadEffects(L"Layer", id, preset_store::loadDraftValue(key(id, L"LocalEffectOrder").c_str()));
+        const bool localEffectsMigrated = flag(id, L"LocalEffectsMigrated", false);
+        if (layer.effects.empty() && !localEffectsMigrated) {
+            if (layer.tailWagAdded) {
+                auto effect = makeLocalEffect(LocalEffectType::Sway); effect.amountX = layer.tailWagAngle;
+                effect.cycleMs = layer.tailWagCycleMs; effect.reactionBoost = layer.tailWagReactionBoost;
+                effect.pivot = layer.tailWagPivot; effect.enabled = layer.tailWagEnabled; layer.effects.push_back(effect);
+            } else if (layer.swayAdded) {
+                auto effect = makeLocalEffect(LocalEffectType::Sway); effect.amountX = layer.swayAngle;
+                effect.cycleMs = layer.swayCycleMs; effect.reactionBoost = layer.swayReactionBoost;
+                effect.pivot = layer.swayPivot; effect.enabled = layer.swayEnabled; layer.effects.push_back(effect);
+            }
+            if (layer.eyeMovementAdded) {
+                auto effect = makeLocalEffect(LocalEffectType::BoundedMovement); effect.amountX = layer.eyeRangeX;
+                effect.amountY = layer.eyeRangeY; effect.cycleMs = layer.eyeCycleMs;
+                effect.activeDuring = layer.eyeActiveDuring; effect.enabled = layer.eyeMovementEnabled; layer.effects.push_back(effect);
+            }
+        }
         layers.push_back(std::move(layer));
     }
     return layers;
@@ -128,6 +222,10 @@ bool saveDraftLayers(const std::vector<Layer> &layers) {
         ok = write(layer.id,L"EyeRangeY",std::to_wstring(layer.eyeRangeY))&&ok;
         ok = write(layer.id,L"EyeCycleMs",std::to_wstring(layer.eyeCycleMs))&&ok;
         ok = write(layer.id,L"EyeActiveDuring",std::to_wstring(layer.eyeActiveDuring))&&ok;
+        std::wstring localEffectOrder;
+        ok = saveEffects(L"Layer", layer.id, layer.effects, localEffectOrder) && ok;
+        ok = write(layer.id, L"LocalEffectOrder", localEffectOrder) && ok;
+        ok = write(layer.id, L"LocalEffectsMigrated", L"1") && ok;
     }
     return preset_store::saveDraftValue(L"LayerOrder",order) &&
            preset_store::saveDraftValue(L"LayerCount",std::to_wstring(layers.size())) && ok;
@@ -160,6 +258,7 @@ Composition loadDraftComposition() {
         group.rotationTenths = groupInteger(id, L"RotationTenths", 0, -3600, 3600);
         group.opacity = groupInteger(id, L"Opacity", 100, 0, 100);
         group.layerOrder = split(groupValue(id, L"LayerOrder"));
+        group.effects = loadEffects(L"Group", id, groupValue(id, L"LocalEffectOrder"));
         composition.groups.push_back(std::move(group));
     }
     const std::wstring stored = preset_store::loadDraftValue(L"CompositionOrder");
@@ -280,6 +379,9 @@ bool saveDraftComposition(const Composition &composition) {
         ok = writeGroup(group.id,L"RotationTenths",std::to_wstring(group.rotationTenths))&&ok;
         ok = writeGroup(group.id,L"Opacity",std::to_wstring(group.opacity))&&ok;
         ok = writeGroup(group.id,L"LayerOrder",children)&&ok;
+        std::wstring localEffectOrder;
+        ok = saveEffects(L"Group", group.id, group.effects, localEffectOrder) && ok;
+        ok = writeGroup(group.id, L"LocalEffectOrder", localEffectOrder) && ok;
     }
     return saveDraftLayers(legacyLayers) && ok &&
            preset_store::saveDraftValue(L"GroupOrder", groupOrder) &&
@@ -291,5 +393,19 @@ Group makeGroup(const std::wstring &name) {
     Group group; group.id=L"group-"+std::to_wstring(time.dwHighDateTime)+L"-"+
         std::to_wstring(time.dwLowDateTime)+L"-"+std::to_wstring(++sequence);
     group.name=name.empty()?L"New group":name; return group;
+}
+LocalEffect makeLocalEffect(LocalEffectType type) {
+    static std::atomic<unsigned long> sequence{0}; FILETIME time{}; GetSystemTimeAsFileTime(&time);
+    LocalEffect effect; effect.id=L"effect-"+std::to_wstring(time.dwHighDateTime)+L"-"+
+        std::to_wstring(time.dwLowDateTime)+L"-"+std::to_wstring(++sequence); effect.type=type;
+    if (type == LocalEffectType::BoundedMovement) { effect.amountX=40; effect.amountY=25; effect.cycleMs=3200; effect.reactionBoost=0; }
+    else if (type == LocalEffectType::Orbit) { effect.amountX=30; effect.amountY=20; effect.cycleMs=3000; effect.activeDuring=2; }
+    else if (type == LocalEffectType::LocalPulse) { effect.amountX=8; effect.amountY=0; effect.cycleMs=1800; effect.activeDuring=2; }
+    else if (type == LocalEffectType::LocalSpin) { effect.amountX=360; effect.amountY=0; effect.cycleMs=3000; effect.activeDuring=2; }
+    else if (type == LocalEffectType::ReactionNudge) { effect.amountX=20; effect.amountY=-12; effect.cycleMs=350; effect.activeDuring=1; }
+    else if (type == LocalEffectType::StateVisibility) { effect.amountX=0; effect.amountY=0; effect.cycleMs=0; effect.activeDuring=1; }
+    else if (type == LocalEffectType::DangleSpring) { effect.amountX=65; effect.amountY=80; effect.cycleMs=650; effect.activeDuring=2; }
+    else if (type == LocalEffectType::Flutter) { effect.amountX=8; effect.amountY=5; effect.cycleMs=900; effect.activeDuring=2; }
+    return effect;
 }
 }

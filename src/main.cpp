@@ -28,6 +28,7 @@
 #include <memory>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -1089,7 +1090,30 @@ void sendLayerState()
 {
     const layer_model::Composition composition = layer_model::loadDraftComposition();
     postAvatarSettingsMessage(L"layer-list-reset\t" + std::to_wstring(composition.layers.size()));
-    auto sendLayer = [](const layer_model::Layer &layer, const std::wstring &groupId) {
+    auto sendEffects = [](const std::wstring &ownerKind, const std::wstring &ownerId,
+                          const std::vector<layer_model::LocalEffect> &effects) {
+        for (const auto &effect : effects) {
+            const wchar_t *type = L"sway";
+            switch (effect.type) {
+            case layer_model::LocalEffectType::Sway: type=L"sway"; break;
+            case layer_model::LocalEffectType::BoundedMovement: type=L"bounded-movement"; break;
+            case layer_model::LocalEffectType::Orbit: type=L"orbit"; break;
+            case layer_model::LocalEffectType::LocalPulse: type=L"local-pulse"; break;
+            case layer_model::LocalEffectType::LocalSpin: type=L"local-spin"; break;
+            case layer_model::LocalEffectType::ReactionNudge: type=L"reaction-nudge"; break;
+            case layer_model::LocalEffectType::StateVisibility: type=L"state-visibility"; break;
+            case layer_model::LocalEffectType::DangleSpring: type=L"dangle-spring"; break;
+            case layer_model::LocalEffectType::Flutter: type=L"flutter"; break;
+            }
+            postAvatarSettingsMessage(L"local-effect\t" + ownerKind + L"\t" + ownerId + L"\t" + effect.id + L"\t" +
+                type + L"\t" +
+                (effect.enabled ? L"1" : L"0") + L"\t" + std::to_wstring(effect.amountX) + L"\t" +
+                std::to_wstring(effect.amountY) + L"\t" + std::to_wstring(effect.cycleMs) + L"\t" +
+                std::to_wstring(effect.reactionBoost) + L"\t" + std::to_wstring(effect.pivot) + L"\t" +
+                std::to_wstring(effect.activeDuring));
+        }
+    };
+    auto sendLayer = [&](const layer_model::Layer &layer, const std::wstring &groupId) {
         postAvatarSettingsMessage(L"layer-item\t" + layer.id + L"\t" + layer.name + L"\t" +
                                   fileNameFromPath(layer.imagePath) + L"\t" +
                                   (layer.visible ? L"1" : L"0") + L"\t" +
@@ -1119,6 +1143,7 @@ void sendLayerState()
                                   std::to_wstring(layer.eyeRangeY) + L"\t" +
                                   std::to_wstring(layer.eyeCycleMs) + L"\t" +
                                   std::to_wstring(layer.eyeActiveDuring) + L"\t" + groupId);
+        sendEffects(L"layer", layer.id, layer.effects);
     };
     for (const layer_model::StackItem &item : composition.rootOrder) {
         if (item.type == layer_model::StackItemType::Primary) {
@@ -1138,6 +1163,7 @@ void sendLayerState()
                 std::to_wstring(group->opacity) + L"\t" + (group->scaleLinked ? L"1" : L"0") + L"\t" +
                 (group->flipHorizontal ? L"1" : L"0") + L"\t" +
                 (group->inheritAvatarEffects ? L"1" : L"0"));
+            sendEffects(L"group", group->id, group->effects);
             for (const std::wstring &layerId : group->layerOrder) {
                 const auto layer = std::find_if(composition.layers.begin(), composition.layers.end(),
                     [&](const layer_model::Layer &candidate) { return candidate.id == layerId; });
@@ -1324,6 +1350,38 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
     const std::wstring id = first == std::wstring::npos ? L"" : command.substr(first + 1, second - first - 1);
     const std::wstring value = second == std::wstring::npos ? L"" : command.substr(second + 1);
     layer_model::Composition composition = layer_model::loadDraftComposition();
+    auto updateEffect = [&](std::vector<layer_model::LocalEffect> &effects, const std::wstring &effectAction) {
+        const size_t separator = value.find(L'|');
+        const std::wstring effectId = separator == std::wstring::npos ? value : value.substr(0, separator);
+        const std::wstring setting = separator == std::wstring::npos ? L"" : value.substr(separator + 1);
+        const auto addUnique = [&](layer_model::LocalEffectType type) {
+            if (std::any_of(effects.begin(), effects.end(), [&](const auto &effect) { return effect.type == type; })) return false;
+            effects.push_back(layer_model::makeLocalEffect(type)); return true;
+        };
+        if (effectAction == L"effect-add-sway") return addUnique(layer_model::LocalEffectType::Sway);
+        if (effectAction == L"effect-add-bounded") return addUnique(layer_model::LocalEffectType::BoundedMovement);
+        if (effectAction == L"effect-add-orbit") return addUnique(layer_model::LocalEffectType::Orbit);
+        if (effectAction == L"effect-add-pulse") return addUnique(layer_model::LocalEffectType::LocalPulse);
+        if (effectAction == L"effect-add-spin") return addUnique(layer_model::LocalEffectType::LocalSpin);
+        if (effectAction == L"effect-add-nudge") return addUnique(layer_model::LocalEffectType::ReactionNudge);
+        if (effectAction == L"effect-add-visibility") return addUnique(layer_model::LocalEffectType::StateVisibility);
+        if (effectAction == L"effect-add-spring") return addUnique(layer_model::LocalEffectType::DangleSpring);
+        if (effectAction == L"effect-add-flutter") return addUnique(layer_model::LocalEffectType::Flutter);
+        const auto effect = std::find_if(effects.begin(), effects.end(), [&](const auto &candidate) { return candidate.id == effectId; });
+        if (effect == effects.end()) return false;
+        if (effectAction == L"effect-remove") effects.erase(effect);
+        else if (effectAction == L"effect-up") { if (effect != effects.begin()) std::iter_swap(effect, effect - 1); }
+        else if (effectAction == L"effect-down") { if (effect + 1 != effects.end()) std::iter_swap(effect, effect + 1); }
+        else if (effectAction == L"effect-enabled") effect->enabled = setting != L"0";
+        else if (effectAction == L"effect-amount-x") effect->amountX = std::clamp(_wtoi(setting.c_str()), effect->type == layer_model::LocalEffectType::ReactionNudge ? -512 : 0, 512);
+        else if (effectAction == L"effect-amount-y") effect->amountY = std::clamp(_wtoi(setting.c_str()), effect->type == layer_model::LocalEffectType::ReactionNudge ? -512 : 0, 512);
+        else if (effectAction == L"effect-cycle") effect->cycleMs = std::clamp(_wtoi(setting.c_str()), 200, 20000);
+        else if (effectAction == L"effect-boost") effect->reactionBoost = std::clamp(_wtoi(setting.c_str()), 0, 300);
+        else if (effectAction == L"effect-pivot") effect->pivot = std::clamp(_wtoi(setting.c_str()), 0, 9);
+        else if (effectAction == L"effect-active") effect->activeDuring = std::clamp(_wtoi(setting.c_str()), 0, 2);
+        else return false;
+        return true;
+    };
     if (action == L"group-add") {
         layer_model::Group group = layer_model::makeGroup(L"New group");
         composition.groups.push_back(group);
@@ -1332,7 +1390,9 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
         if (layer_model::saveDraftComposition(composition)) {
             { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = composition; }
             postAvatarSettingsMessage(L"preset-dirty\t1");
-            sendLayerState();
+            const bool structuralEffectChange = action.rfind(L"group-effect-add-", 0) == 0 || action == L"group-effect-remove" ||
+                action == L"group-effect-up" || action == L"group-effect-down";
+            if (action.rfind(L"group-effect-", 0) != 0 || structuralEffectChange) sendLayerState();
         }
         return;
     }
@@ -1368,6 +1428,9 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
         else if (action == L"group-opacity") group->opacity = std::clamp(_wtoi(value.c_str()), 0, 100);
         else if (action == L"group-flip") group->flipHorizontal = value != L"0";
         else if (action == L"group-inherit") group->inheritAvatarEffects = value != L"0";
+        else if (action.rfind(L"group-effect-", 0) == 0) {
+            if (!updateEffect(group->effects, action.substr(6))) return;
+        }
         else return;
         if (previewOnly) {
             std::lock_guard<std::mutex> lock(g_layerStateMutex);
@@ -1462,6 +1525,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
     else if (action == L"eye-range-y") found->eyeRangeY = std::clamp(_wtoi(value.c_str()), 0, 512);
     else if (action == L"eye-cycle") found->eyeCycleMs = std::clamp(_wtoi(value.c_str()), 500, 20000);
     else if (action == L"eye-active") found->eyeActiveDuring = std::clamp(_wtoi(value.c_str()), 0, 2);
+    else if (action.rfind(L"effect-", 0) == 0) { if (!updateEffect(found->effects, action)) return; }
     else return;
     if (previewOnly) {
         std::lock_guard<std::mutex> lock(g_layerStateMutex);
@@ -1476,7 +1540,9 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             action == L"visible" || action == L"purpose" || action == L"parent" ||
             action == L"tail-add" || action == L"tail-remove" ||
             action == L"sway-add" || action == L"sway-remove" ||
-            action == L"eye-add" || action == L"eye-remove")
+            action == L"eye-add" || action == L"eye-remove" ||
+            action.rfind(L"effect-add-", 0) == 0 ||
+            action == L"effect-remove" || action == L"effect-up" || action == L"effect-down")
             sendLayerState();
     }
 }
@@ -2014,11 +2080,116 @@ public:
                 const auto found = std::find_if(layerImages_.begin(), layerImages_.end(),
                     [&](const LayerTexture &item) { return item.id == layer.id; });
                 if (found == layerImages_.end()) return;
-                const float groupScaleX = group ? static_cast<float>(group->scaleX) / 100.0f : 1.0f;
-                const float groupScaleY = group ? static_cast<float>(group->scaleY) / 100.0f : 1.0f;
-                const float localX = static_cast<float>(layer.scaleX) / 100.0f * groupScaleX;
-                const float localY = static_cast<float>(layer.scaleY) / 100.0f * groupScaleY;
+                auto evaluateEffects = [&](const std::wstring &ownerId,
+                                           const std::vector<layer_model::LocalEffect> &effects,
+                                           float driverX, float driverY,
+                                           float &offsetX, float &offsetY, float &rotation,
+                                           float &scale, float &opacity, int &pivot) {
+                    for (const auto &effect : effects) {
+                        if (!effect.enabled) continue;
+                        const unsigned cycle = static_cast<unsigned>(std::max(200, effect.cycleMs));
+                        const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
+                        if (effect.type == layer_model::LocalEffectType::Sway) {
+                            auto &reaction = localEffectReaction_[ownerId + L":" + effect.id];
+                            if (reaction.second == 0) reaction.second = now;
+                            const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - reaction.second, 100));
+                            reaction.second = now;
+                            const float target = reactionActive ? 1.0f : 0.0f;
+                            reaction.first += (target - reaction.first) * std::min(1.0f, elapsed / 220.0f);
+                            const float reactionMultiplier = 1.0f + reaction.first *
+                                static_cast<float>(effect.reactionBoost) / 100.0f;
+                            rotation += std::sin(phase) * static_cast<float>(effect.amountX) *
+                                        reactionMultiplier * 0.0174532925199f;
+                            pivot = effect.pivot;
+                        } else if (effect.type == layer_model::LocalEffectType::DangleSpring) {
+                            auto &spring = localEffectSprings_[ownerId + L":" + effect.id];
+                            if (spring.lastUpdate == 0) { spring.lastDriverX=driverX; spring.lastDriverY=driverY; spring.lastUpdate=now; }
+                            const float elapsed = static_cast<float>(std::min<ULONGLONG>(now-spring.lastUpdate, 50)) / 1000.0f;
+                            const bool active = effect.activeDuring == 2 || (effect.activeDuring == 1 ? reactionActive : !reactionActive);
+                            if (active) {
+                                const float flexibility = static_cast<float>(effect.amountX) / 100.0f;
+                                spring.offsetX -= (driverX-spring.lastDriverX) * flexibility;
+                                spring.offsetY -= (driverY-spring.lastDriverY) * flexibility;
+                            }
+                            spring.lastDriverX=driverX; spring.lastDriverY=driverY; spring.lastUpdate=now;
+                            const float settleSeconds=std::max(0.2f,static_cast<float>(cycle)/1000.0f);
+                            const float stiffness=39.4784176f/(settleSeconds*settleSeconds);
+                            const float damping=2.0f*std::sqrt(stiffness)*0.72f;
+                            spring.velocityX+=(-stiffness*spring.offsetX-damping*spring.velocityX)*elapsed;
+                            spring.velocityY+=(-stiffness*spring.offsetY-damping*spring.velocityY)*elapsed;
+                            spring.offsetX+=spring.velocityX*elapsed; spring.offsetY+=spring.velocityY*elapsed;
+                            const float limit=static_cast<float>(std::max(0,effect.amountY));
+                            spring.offsetX=std::clamp(spring.offsetX,-limit,limit); spring.offsetY=std::clamp(spring.offsetY,-limit,limit);
+                            offsetX+=spring.offsetX; offsetY+=spring.offsetY;
+                        } else if (effect.type == layer_model::LocalEffectType::ReactionNudge) {
+                            auto &state = localEffectTriggers_[ownerId + L":" + effect.id];
+                            if (reactionActive && !state.first) state.second = now;
+                            state.first = reactionActive;
+                            if (state.second > 0 && now - state.second < cycle) {
+                                const float progress = static_cast<float>(now - state.second) / static_cast<float>(cycle);
+                                const float envelope = std::sin(progress * 3.14159265359f);
+                                offsetX += static_cast<float>(effect.amountX) * envelope;
+                                offsetY += static_cast<float>(effect.amountY) * envelope;
+                            }
+                        } else {
+                            const bool active = effect.activeDuring == 2 ||
+                                (effect.activeDuring == 1 ? reactionActive : !reactionActive);
+                            auto &activity = localEffectActivity_[ownerId + L":" + effect.id];
+                            if (activity.second == 0) activity.second = now;
+                            const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - activity.second, 100));
+                            activity.second = now;
+                            const float target = active ? 1.0f : 0.0f;
+                            activity.first += (target - activity.first) * std::min(1.0f, elapsed / 220.0f);
+                            if (effect.type == layer_model::LocalEffectType::BoundedMovement) {
+                                float unitX = std::sin(phase);
+                                float unitY = std::sin(phase * 2.0f + 1.15f);
+                                const float magnitude = std::sqrt(unitX * unitX + unitY * unitY);
+                                if (magnitude > 1.0f) { unitX /= magnitude; unitY /= magnitude; }
+                                offsetX += unitX * static_cast<float>(effect.amountX) * activity.first;
+                                offsetY += unitY * static_cast<float>(effect.amountY) * activity.first;
+                            } else if (effect.type == layer_model::LocalEffectType::Orbit) {
+                                offsetX += std::cos(phase) * static_cast<float>(effect.amountX) * activity.first;
+                                offsetY += std::sin(phase) * static_cast<float>(effect.amountY) * activity.first;
+                            } else if (effect.type == layer_model::LocalEffectType::LocalPulse) {
+                                scale *= 1.0f + std::sin(phase) * static_cast<float>(effect.amountX) * 0.01f * activity.first;
+                            } else if (effect.type == layer_model::LocalEffectType::LocalSpin) {
+                                const float direction = effect.amountY == 1 ? -1.0f : 1.0f;
+                                rotation += phase * direction * activity.first;
+                                pivot = effect.pivot;
+                            } else if (effect.type == layer_model::LocalEffectType::StateVisibility) {
+                                opacity *= activity.first;
+                            } else if (effect.type == layer_model::LocalEffectType::Flutter) {
+                                const float distance=static_cast<float>(effect.amountX)*activity.first;
+                                offsetX+=(std::sin(phase*1.73f+0.4f)*0.65f+std::sin(phase*3.17f+2.0f)*0.35f)*distance;
+                                offsetY+=(std::sin(phase*2.11f+1.2f)*0.7f+std::sin(phase*4.03f)*0.3f)*distance*0.55f;
+                                rotation+=(std::sin(phase*1.37f)+std::sin(phase*2.79f+0.8f)*0.45f)*
+                                    static_cast<float>(effect.amountY)*0.0174532925199f*activity.first;
+                                pivot=effect.pivot;
+                            }
+                        }
+                    }
+                };
                 const bool inheritsRoot = layer.inheritAvatarEffects && (!group || group->inheritAvatarEffects);
+                const float motionX = inheritsRoot ? floatX + shakeX : 0.0f;
+                const float motionY = inheritsRoot ? floatY + bounce + shakeY : 0.0f;
+                float groupEffectX = 0.0f, groupEffectY = 0.0f, groupEffectRotation = 0.0f;
+                float groupEffectScale = 1.0f, groupEffectOpacity = 1.0f;
+                int groupEffectPivot = 0;
+                if (group) evaluateEffects(group->id, group->effects,
+                    group->inheritAvatarEffects ? floatX+shakeX : 0.0f,
+                    group->inheritAvatarEffects ? floatY+bounce+shakeY : 0.0f,
+                    groupEffectX, groupEffectY,
+                    groupEffectRotation, groupEffectScale, groupEffectOpacity, groupEffectPivot);
+                float layerEffectX = 0.0f, layerEffectY = 0.0f, localEffectRotation = 0.0f;
+                float layerEffectScale = 1.0f, layerEffectOpacity = 1.0f;
+                int localEffectPivot = 0;
+                evaluateEffects(layer.id, layer.effects, motionX+(group?group->positionX+groupEffectX:0.0f),
+                    motionY+(group?group->positionY+groupEffectY:0.0f), layerEffectX, layerEffectY, localEffectRotation,
+                    layerEffectScale, layerEffectOpacity, localEffectPivot);
+                const float groupScaleX = (group ? static_cast<float>(group->scaleX) / 100.0f : 1.0f) * groupEffectScale;
+                const float groupScaleY = (group ? static_cast<float>(group->scaleY) / 100.0f : 1.0f) * groupEffectScale;
+                const float localX = static_cast<float>(layer.scaleX) / 100.0f * groupScaleX * layerEffectScale;
+                const float localY = static_cast<float>(layer.scaleY) / 100.0f * groupScaleY * layerEffectScale;
                 const float effectScaleX = inheritsRoot && baseAvatarWidth > 0.0f
                                                ? avatarWidth / baseAvatarWidth : 1.0f;
                 const float effectScaleY = inheritsRoot && baseAvatarHeight > 0.0f
@@ -2027,84 +2198,53 @@ public:
                 const float rootY = primaryScale * effectScaleY;
                 const float layerWidth = found->texture.width * rootX * localX;
                 const float layerHeight = found->texture.height * rootY * localY;
-                const float motionX = inheritsRoot ? floatX + shakeX : 0.0f;
-                const float motionY = inheritsRoot ? floatY + bounce + shakeY : 0.0f;
-                float eyeOffsetX = 0.0f;
-                float eyeOffsetY = 0.0f;
-                if (layer.eyeMovementAdded) {
-                    const bool configuredStateActive = layer.eyeActiveDuring == 2 ||
-                        (layer.eyeActiveDuring == 1 ? reactionActive : !reactionActive);
-                    if (found->lastEyeMotionUpdate == 0) found->lastEyeMotionUpdate = now;
-                    const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - found->lastEyeMotionUpdate, 100));
-                    found->lastEyeMotionUpdate = now;
-                    const float targetMix = layer.eyeMovementEnabled && configuredStateActive ? 1.0f : 0.0f;
-                    const float blend = std::min(1.0f, elapsed / 220.0f);
-                    found->eyeActivityMix += (targetMix - found->eyeActivityMix) * blend;
-                    const unsigned cycle = std::max(500, layer.eyeCycleMs);
-                    const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
-                    float unitX = std::sin(phase);
-                    // Integer-related axes meet at exactly the same coordinates
-                    // when the cycle wraps, avoiding a visible end-of-path jump.
-                    float unitY = std::sin(phase * 2.0f + 1.15f);
-                    const float magnitude = std::sqrt(unitX * unitX + unitY * unitY);
-                    if (magnitude > 1.0f) { unitX /= magnitude; unitY /= magnitude; }
-                    eyeOffsetX = unitX * static_cast<float>(layer.eyeRangeX) * found->eyeActivityMix;
-                    eyeOffsetY = unitY * static_cast<float>(layer.eyeRangeY) * found->eyeActivityMix;
-                }
                 const float centreX = static_cast<float>(width_) * 0.5f + motionX +
-                    (group ? group->positionX : 0) + (layer.positionX + eyeOffsetX) * groupScaleX;
+                    (group ? group->positionX + groupEffectX : 0) + (layer.positionX + layerEffectX) * groupScaleX;
                 const float centreY = baseBottom - avatarHeight * 0.5f + motionY +
-                    (group ? group->positionY : 0) + (layer.positionY + eyeOffsetY) * groupScaleY;
+                    (group ? group->positionY + groupEffectY : 0) + (layer.positionY + layerEffectY) * groupScaleY;
                 const float rootRotation = inheritsRoot ? shakeRotation + currentTilt_ : 0.0f;
-                const float groupRotation = group ? static_cast<float>(group->rotationTenths) * 0.001745329252f : 0.0f;
-                const float groupPivotX = static_cast<float>(width_) * 0.5f + motionX +
-                    (group ? group->positionX : 0);
-                const float groupPivotY = baseBottom - avatarHeight * 0.5f + motionY +
-                    (group ? group->positionY : 0);
+                const float groupRotation = group ? static_cast<float>(group->rotationTenths) * 0.001745329252f + groupEffectRotation : 0.0f;
                 const float localRotation = static_cast<float>(layer.rotationTenths) * 0.001745329252f;
-                float localEffectRotation = 0.0f;
-                int localEffectPivot = 0;
-                if (layer.tailWagAdded && layer.tailWagEnabled) {
-                    const unsigned cycle = std::max(200, layer.tailWagCycleMs);
-                    const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
-                    if (found->lastReactionMixUpdate == 0) found->lastReactionMixUpdate = now;
-                    const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - found->lastReactionMixUpdate, 100));
-                    found->lastReactionMixUpdate = now;
-                    const float targetMix = reactionActive ? 1.0f : 0.0f;
-                    const float blend = std::min(1.0f, elapsed / 180.0f);
-                    found->reactionMix += (targetMix - found->reactionMix) * blend;
-                    const float reactionMultiplier = 1.0f + found->reactionMix *
-                        static_cast<float>(layer.tailWagReactionBoost) / 100.0f;
-                    localEffectRotation = std::sin(phase) * static_cast<float>(layer.tailWagAngle) *
-                                          reactionMultiplier * 0.0174532925199f;
-                    localEffectPivot = layer.tailWagPivot;
-                } else if (layer.swayAdded && layer.swayEnabled) {
-                    const unsigned cycle = std::max(400, layer.swayCycleMs);
-                    const float phase = static_cast<float>(now % cycle) / static_cast<float>(cycle) * 6.28318530718f;
-                    if (found->lastReactionMixUpdate == 0) found->lastReactionMixUpdate = now;
-                    const float elapsed = static_cast<float>(std::min<ULONGLONG>(now - found->lastReactionMixUpdate, 100));
-                    found->lastReactionMixUpdate = now;
-                    const float targetMix = reactionActive ? 1.0f : 0.0f;
-                    const float blend = std::min(1.0f, elapsed / 240.0f);
-                    found->reactionMix += (targetMix - found->reactionMix) * blend;
-                    const float reactionMultiplier = 1.0f + found->reactionMix *
-                        static_cast<float>(layer.swayReactionBoost) / 100.0f;
-                    localEffectRotation = std::sin(phase) * static_cast<float>(layer.swayAngle) *
-                                          reactionMultiplier * 0.0174532925199f;
-                    localEffectPivot = layer.swayPivot;
-                }
                 const float pivotU = static_cast<float>(layer.pivotX) / 100.0f;
                 const float pivotV = static_cast<float>(layer.pivotY) / 100.0f;
                 static constexpr float anchorU[] = {0.0f,0.0f,0.5f,1.0f,0.0f,0.5f,1.0f,0.0f,0.5f,1.0f};
                 static constexpr float anchorV[] = {0.0f,0.0f,0.0f,0.0f,0.5f,0.5f,0.5f,1.0f,1.0f,1.0f};
+                float groupPivotX = static_cast<float>(width_) * 0.5f + motionX +
+                    (group ? group->positionX + groupEffectX : 0);
+                float groupPivotY = baseBottom - avatarHeight * 0.5f + motionY +
+                    (group ? group->positionY + groupEffectY : 0);
+                if (group && groupEffectPivot > 0) {
+                    float left=0.0f, right=0.0f, top=0.0f, bottom=0.0f; bool hasBounds=false;
+                    for (const std::wstring &childId : group->layerOrder) {
+                        const auto child = std::find_if(composition.layers.begin(), composition.layers.end(),
+                            [&](const auto &candidate) { return candidate.id == childId; });
+                        const auto childImage = std::find_if(layerImages_.begin(), layerImages_.end(),
+                            [&](const auto &candidate) { return candidate.id == childId; });
+                        if (child == composition.layers.end() || childImage == layerImages_.end()) continue;
+                        const float childWidth = childImage->texture.width * primaryScale *
+                            static_cast<float>(child->scaleX) / 100.0f * groupScaleX;
+                        const float childHeight = childImage->texture.height * primaryScale *
+                            static_cast<float>(child->scaleY) / 100.0f * groupScaleY;
+                        const float childX = static_cast<float>(child->positionX) * groupScaleX;
+                        const float childY = static_cast<float>(child->positionY) * groupScaleY;
+                        const float candidateLeft=childX-childWidth*0.5f, candidateRight=childX+childWidth*0.5f;
+                        const float candidateTop=childY-childHeight*0.5f, candidateBottom=childY+childHeight*0.5f;
+                        if (!hasBounds) { left=candidateLeft; right=candidateRight; top=candidateTop; bottom=candidateBottom; hasBounds=true; }
+                        else { left=std::min(left,candidateLeft); right=std::max(right,candidateRight); top=std::min(top,candidateTop); bottom=std::max(bottom,candidateBottom); }
+                    }
+                    if (hasBounds) {
+                        groupPivotX += left + (right-left) * anchorU[std::clamp(groupEffectPivot,1,9)];
+                        groupPivotY += top + (bottom-top) * anchorV[std::clamp(groupEffectPivot,1,9)];
+                    }
+                }
                 localEffectPivot = std::clamp(localEffectPivot, 0, 9);
                 const float effectPivotU = localEffectPivot == 0 ? pivotU : anchorU[localEffectPivot];
                 const float effectPivotV = localEffectPivot == 0 ? pivotV : anchorV[localEffectPivot];
                 const float avatarRootPivotX = static_cast<float>(width_) * 0.5f + floatX + shakeX;
                 const float avatarRootPivotY = baseBottom + floatY + bounce + shakeY;
-                const float groupOpacity = group ? static_cast<float>(group->opacity) / 100.0f : 1.0f;
+                const float groupOpacity = (group ? static_cast<float>(group->opacity) / 100.0f : 1.0f) * groupEffectOpacity;
                 setPixelAppearance(inheritsRoot ? currentBrightness_ : 1.0f,
-                                   static_cast<float>(layer.opacity) / 100.0f * groupOpacity);
+                                   static_cast<float>(layer.opacity) / 100.0f * groupOpacity * layerEffectOpacity);
                 draw(found->texture, centreX - layerWidth * 0.5f, centreY - layerHeight * 0.5f,
                      layerWidth, layerHeight, localRotation, pivotU, pivotV,
                      localEffectRotation, effectPivotU, effectPivotV, rootRotation,
@@ -2618,6 +2758,14 @@ private:
         ULONGLONG lastEyeMotionUpdate = 0;
     };
     std::vector<LayerTexture> layerImages_;
+    std::unordered_map<std::wstring, std::pair<float, ULONGLONG>> localEffectActivity_;
+    std::unordered_map<std::wstring, std::pair<float, ULONGLONG>> localEffectReaction_;
+    std::unordered_map<std::wstring, std::pair<bool, ULONGLONG>> localEffectTriggers_;
+    struct SpringRuntime {
+        float lastDriverX=0.0f,lastDriverY=0.0f,offsetX=0.0f,offsetY=0.0f,velocityX=0.0f,velocityY=0.0f;
+        ULONGLONG lastUpdate=0;
+    };
+    std::unordered_map<std::wstring, SpringRuntime> localEffectSprings_;
     bool backgroundImageLoaded_ = false;
     spoutDX spoutSender_;
     bool spoutDeviceOpen_ = false;
