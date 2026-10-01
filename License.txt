@@ -1,0 +1,62 @@
+RearSilver Avatar Suite
+Software Licence Agreement
+
+Copyright © 2026 RearSilver.
+All rights reserved.
+
+IMPORTANT: PLEASE READ THIS LICENCE CAREFULLY BEFORE USING THIS SOFTWARE.
+
+By installing, copying, or using RearSilver Avatar Suite ("the Software"),
+you agree to be bound by the terms of this Licence Agreement.
+
+1. GRANT OF LICENCE
+RearSilver grants you a non-exclusive, non-transferable, revocable licence
+to install and use the Software on systems you own or control for personal
+or commercial streaming, content creation, avatar creation, and avatar
+output.
+
+2. RESTRICTIONS
+You may NOT:
+- Redistribute, sell, rent, lease, sublicense, or share the Software
+- Reverse engineer, decompile, or disassemble the Software
+- Modify or create derivative works of the Software
+- Remove or alter any copyright or branding notices
+
+3. USER CONTENT
+You retain your rights in images, artwork, presets, and other content that
+you create or import into the Software. You are responsible for ensuring
+that you have permission to use and broadcast that content. This Licence
+does not grant RearSilver ownership of your content.
+
+4. PRE-RELEASE BUILDS
+Owner, private beta, test, or other pre-release builds may contain unfinished
+features and may be time-limited. After an embedded expiry date, a pre-release
+build may disable avatar output and automation while retaining access to
+settings and diagnostics so that you can recover information and update the
+Software.
+
+5. THIRD-PARTY COMPONENTS
+The Software may include third-party components that remain subject to their
+own licence terms. Those terms are provided with the Software where required
+and are not replaced by this Licence.
+
+6. OWNERSHIP
+The Software is licensed, not sold. RearSilver retains all right, title, and
+interest in and to the Software, including all intellectual property rights,
+except for user content and third-party components described above.
+
+7. TERMINATION
+This Licence is effective until terminated. It will terminate automatically
+if you breach any of its terms. Upon termination, you must cease all use of
+the Software.
+
+8. NO WARRANTY
+The Software is provided "AS IS", without warranty of any kind, express or
+implied, including but not limited to fitness for a particular purpose.
+
+9. LIMITATION OF LIABILITY
+In no event shall RearSilver be liable for any damages arising out of the use
+or inability to use the Software.
+
+10. GOVERNING LAW
+This Licence shall be governed by the laws of the United Kingdom.

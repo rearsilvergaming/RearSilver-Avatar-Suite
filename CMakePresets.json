@@ -1,0 +1,64 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "windows-x64",
+      "hidden": true,
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/out/build/x64",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "windows-owner",
+      "inherits": "windows-x64",
+      "displayName": "Windows Owner Build",
+      "description": "Unrestricted owner build with no expiry",
+      "binaryDir": "${sourceDir}/build_owner",
+      "cacheVariables": {
+        "RS_BUILD_CHANNEL": "Owner Build",
+        "RS_BUILD_VERSION": "1.0.0-owner.2",
+        "RS_BUILD_EXPIRY_ENABLED": false,
+        "RS_BUILD_EXPIRY_DATE": "2026-10-31",
+        "RS_BUILD_EXPIRY_DISPLAY": "31 October 2026",
+        "RS_ARTIFACT_DIR": "${sourceDir}/artifacts/owner/1.0.0-owner.2"
+      }
+    },
+    {
+      "name": "windows-private-beta",
+      "inherits": "windows-x64",
+      "displayName": "Windows Private Beta",
+      "description": "Fully unlocked private beta with fixed expiry and diagnostics",
+      "binaryDir": "${sourceDir}/build_beta",
+      "cacheVariables": {
+        "RS_BUILD_CHANNEL": "Private Beta",
+        "RS_BUILD_VERSION": "1.0.0-beta.1",
+        "RS_BUILD_EXPIRY_ENABLED": true,
+        "RS_BUILD_EXPIRY_DATE": "2026-10-31",
+        "RS_BUILD_EXPIRY_DISPLAY": "31 October 2026",
+        "RS_ARTIFACT_DIR": "${sourceDir}/artifacts/private-beta/1.0.0-beta.1"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "windows-owner",
+      "configurePreset": "windows-owner",
+      "configuration": "RelWithDebInfo"
+    },
+    {
+      "name": "windows-private-beta",
+      "configurePreset": "windows-private-beta",
+      "configuration": "RelWithDebInfo"
+    }
+  ]
+}

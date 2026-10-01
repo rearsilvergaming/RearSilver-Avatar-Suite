@@ -1,0 +1,28 @@
+#include <windows.h>
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION 1,0,0,0
+ PRODUCTVERSION 1,0,0,0
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x1L
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904b0"
+    BEGIN
+      VALUE "CompanyName", "RearSilver Gaming\0"
+      VALUE "FileDescription", "RearSilver Avatar Suite (@RS_BUILD_CHANNEL@)\0"
+      VALUE "FileVersion", "@RS_BUILD_VERSION@\0"
+      VALUE "InternalName", "RearSilverAvatarSuite\0"
+      VALUE "OriginalFilename", "RearSilver Avatar Suite.exe\0"
+      VALUE "ProductName", "RearSilver Avatar Suite\0"
+      VALUE "ProductVersion", "@RS_BUILD_VERSION@\0"
+      VALUE "Comments", "Build @RS_BUILD_ID@ - @RS_BUILD_DATE@\0"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

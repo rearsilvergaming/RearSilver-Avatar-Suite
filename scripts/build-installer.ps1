@@ -1,17 +1,35 @@
 [CmdletBinding()]
 param(
-    [ValidateSet('owner')]
+    [ValidateSet('owner','private-beta')]
     [string] $Profile = 'owner'
 )
 
 $ErrorActionPreference = 'Stop'
 $sourceDir = Split-Path -Parent $PSScriptRoot
-$version = '1.0.0-owner.1'
-$channel = 'Owner Build'
-$artifactRoot = Join-Path $sourceDir "artifacts\owner\$version"
+$profiles = @{
+    owner = @{ Label='Owner' }
+    'private-beta' = @{ Label='Private-Beta' }
+}
+$profileInfo = $profiles[$Profile]
+$presetName = "windows-$Profile"
+$presets = Get-Content -LiteralPath (Join-Path $sourceDir 'CMakePresets.json') -Raw | ConvertFrom-Json
+$preset = $presets.configurePresets | Where-Object { $_.name -eq $presetName } | Select-Object -First 1
+if (-not $preset) { throw "Configure preset '$presetName' was not found." }
+$version = [string] $preset.cacheVariables.RS_BUILD_VERSION
+$channel = [string] $preset.cacheVariables.RS_BUILD_CHANNEL
+$expiryDate = [string] $preset.cacheVariables.RS_BUILD_EXPIRY_DATE
+$expiryDisplay = [string] $preset.cacheVariables.RS_BUILD_EXPIRY_DISPLAY
+$expiryEnabled = if ($preset.cacheVariables.RS_BUILD_EXPIRY_ENABLED) { 'ON' } else { 'OFF' }
+if ([string]::IsNullOrWhiteSpace($version) -or [string]::IsNullOrWhiteSpace($channel)) {
+    throw "Configure preset '$presetName' must define RS_BUILD_VERSION and RS_BUILD_CHANNEL."
+}
+$artifactRoot = Join-Path $sourceDir "artifacts\$Profile\$version"
+$presetArtifactRoot = [IO.Path]::GetFullPath(([string] $preset.cacheVariables.RS_ARTIFACT_DIR).Replace('${sourceDir}', $sourceDir))
+if ($presetArtifactRoot -ne [IO.Path]::GetFullPath($artifactRoot)) {
+    throw "Configure preset '$presetName' must identify artifact directory '$artifactRoot'."
+}
 $appRoot = Join-Path $artifactRoot 'app'
 $installerRoot = Join-Path $artifactRoot 'installer'
-$buildRoot = Join-Path $sourceDir 'out\build\x64-Owner'
 $prerequisiteRoot = Join-Path $sourceDir '.deps\installer-prerequisites'
 
 $prerequisites = @(
@@ -38,31 +56,44 @@ foreach ($prerequisite in $prerequisites) {
     }
 }
 
-$developerCommandPrompt = 'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat'
-if (-not (Test-Path -LiteralPath $developerCommandPrompt)) { throw "Visual Studio developer prompt was not found: $developerCommandPrompt" }
-$buildScript = Join-Path $env:TEMP 'rearsilver-avatar-owner-build.cmd'
-Set-Content -LiteralPath $buildScript -Encoding ascii -Value @(
-    "@call `"$developerCommandPrompt`"",
-    "@cmake -S `"$sourceDir`" -B `"$buildRoot`" -G Ninja -DCMAKE_BUILD_TYPE=Release",
-    '@if errorlevel 1 exit /b %errorlevel%',
-    "@cmake --build `"$buildRoot`" --target RearSilverAvatarSuite",
-    '@exit /b %errorlevel%'
+$runtimeFiles = @(
+    'RearSilver Avatar Suite.exe',
+    'WebView2Loader.dll',
+    'avatar-settings.html',
+    'spout2-license.txt',
+    'settings-header.png',
+    'settings-badge.png',
+    'splash.png',
+    'Sora-Variable.ttf',
+    'default-avatar-idle.png',
+    'default-avatar-reaction.png',
+    'rail-presets.png',
+    'rail-reactions-on.png',
+    'rail-reactions-off.png',
+    'rail-websocket.png',
+    'rail-background.png',
+    'rail-tools.png',
+    'rail-settings.png'
 )
-try {
-    & $buildScript
-    if ($LASTEXITCODE -ne 0) { throw "Avatar Suite Owner build failed with exit code $LASTEXITCODE." }
-} finally {
-    Remove-Item -LiteralPath $buildScript -Force -ErrorAction SilentlyContinue
+foreach ($runtimeFile in $runtimeFiles) {
+    $source = Join-Path $appRoot $runtimeFile
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Required staged runtime file is missing. Run the '$presetName' configure and build presets first: $source"
+    }
 }
-
-if (Test-Path -LiteralPath $artifactRoot) { Remove-Item -LiteralPath $artifactRoot -Recurse -Force }
-New-Item -ItemType Directory -Path $appRoot, $installerRoot -Force | Out-Null
-$runtimeExtensions = @('.exe','.dll','.html','.txt','.png','.ttf')
-Get-ChildItem -LiteralPath $buildRoot -File | Where-Object { $runtimeExtensions -contains $_.Extension.ToLowerInvariant() } |
-    Where-Object { $_.Name -ne 'CMakeCache.txt' } |
-    Copy-Item -Destination $appRoot
-$requiredExecutable = Join-Path $appRoot 'RearSilver Avatar Suite.exe'
-if (-not (Test-Path -LiteralPath $requiredExecutable -PathType Leaf)) { throw "Staged executable is missing: $requiredExecutable" }
+$builtInSource = Join-Path $appRoot 'built-in-layers'
+$expectedBuiltInCount = (Get-ChildItem -LiteralPath (Join-Path $sourceDir 'assets\Built In Layers') -Filter '*.png' -File).Count
+if (-not (Test-Path -LiteralPath $builtInSource -PathType Container)) {
+    throw "Built-in layer directory is missing from the clean build: $builtInSource"
+}
+$builtInFiles = Get-ChildItem -LiteralPath $builtInSource -Filter '*.png' -File
+if ($builtInFiles.Count -ne $expectedBuiltInCount -or $builtInFiles.Count -eq 0) {
+    throw "Built-in layer payload is incomplete. Expected $expectedBuiltInCount PNG files, found $($builtInFiles.Count)."
+}
+$stagedFiles = Get-ChildItem -LiteralPath $appRoot -File -Recurse
+if ($stagedFiles.Count -ne ($runtimeFiles.Count + $expectedBuiltInCount)) {
+    throw "Staged payload contains an unexpected number of files: $($stagedFiles.Count)."
+}
 
 $makensis = @(
     (Get-Command makensis.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source -First 1),
@@ -74,14 +105,15 @@ if (-not $makensis) { throw 'NSIS 3.x was not found.' }
 $vcRuntimeInfo = (Get-Item -LiteralPath (Join-Path $prerequisiteRoot 'vc_redist.x64.exe')).VersionInfo
 $vcRuntimeVersion = if ($vcRuntimeInfo.FileVersionRaw) { $vcRuntimeInfo.FileVersionRaw.ToString() } else { '0' }
 if ($vcRuntimeVersion -notmatch '^\d+\.\d+\.\d+\.\d+$') { $vcRuntimeVersion = '0' }
-$outputFile = Join-Path $installerRoot "RearSilver-Avatar-Suite-Owner-$version-Setup.exe"
+$outputFile = Join-Path $installerRoot "RearSilver-Avatar-Suite-$($profileInfo.Label)-$version-Setup.exe"
+New-Item -ItemType Directory -Path $installerRoot -Force | Out-Null
 
 Push-Location -LiteralPath $sourceDir
 try {
-    & $makensis /NOCD "/DRS_ARTIFACT_ROOT=$artifactRoot" "/DRS_PREREQUISITE_ROOT=$prerequisiteRoot" "/DRS_VERSION=$version" "/DRS_CHANNEL=$channel" "/DRS_OUTPUT_FILE=$outputFile" "/DRS_VC_RUNTIME_MIN_VERSION=$vcRuntimeVersion" (Join-Path $sourceDir 'installer.nsi')
+    & $makensis /NOCD "/DRS_ARTIFACT_ROOT=$artifactRoot" "/DRS_PREREQUISITE_ROOT=$prerequisiteRoot" "/DRS_VERSION=$version" "/DRS_CHANNEL=$channel" "/DRS_OUTPUT_FILE=$outputFile" "/DRS_VC_RUNTIME_MIN_VERSION=$vcRuntimeVersion" "/DRS_EXPIRY_ENABLED=$expiryEnabled" "/DRS_EXPIRY_DISPLAY=$expiryDisplay" (Join-Path $sourceDir 'installer.nsi')
     if ($LASTEXITCODE -ne 0) { throw "NSIS failed with exit code $LASTEXITCODE." }
 } finally {
     Pop-Location
 }
 
-Write-Output "Owner installer created: $outputFile"
+Write-Output "$channel installer created: $outputFile"

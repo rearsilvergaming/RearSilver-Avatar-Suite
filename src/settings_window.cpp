@@ -1,5 +1,6 @@
 #include "settings_window.h"
 #include "resource.h"
+#include "rs_build_config.hpp"
 #include <commdlg.h>
 #include <objidl.h>
 #include <shobjidl.h>
@@ -183,6 +184,24 @@ void sendGuidedSetupState()
         std::to_wstring(state.step) + L"\t" + std::to_wstring(state.schemaVersion)).c_str());
 }
 
+std::wstring widenAscii(const char *text)
+{
+    std::wstring result;
+    while (*text) result.push_back(static_cast<unsigned char>(*text++));
+    return result;
+}
+
+void sendBuildState()
+{
+    if (!g_webView) return;
+    const auto state = RsBuild::currentState();
+    g_webView->PostWebMessageAsString((L"build-state\t" + widenAscii(RsBuild::kChannel) + L"\t" +
+        widenAscii(RsBuild::kVersion) + L"\t" + widenAscii(RsBuild::kBuildId) + L"\t" +
+        widenAscii(RsBuild::kBuildDate) + L"\t" + (RsBuild::kExpiryEnabled ? L"1" : L"0") + L"\t" +
+        widenAscii(RsBuild::kExpiryDisplay) + L"\t" + std::to_wstring(state.daysRemaining) + L"\t" +
+        (state.expired ? L"1" : L"0")).c_str());
+}
+
 StreamSuiteState streamSuiteState()
 {
     StreamSuiteState state;
@@ -306,6 +325,13 @@ void initialiseWebView()
         return;
     g_initialising = true;
     const std::wstring assets = executableDirectory();
+    if (!std::filesystem::is_regular_file(std::filesystem::path(assets) / L"avatar-settings.html")) {
+        g_initialising = false;
+        MessageBoxW(g_settingsWindow,
+                    L"Avatar Suite Settings cannot open because avatar-settings.html is missing.\n\nRepair or reinstall RearSilver Avatar Suite.",
+                    L"Settings files are incomplete", MB_OK | MB_ICONERROR);
+        return;
+    }
     const std::wstring data = webViewDataDirectory();
     CreateCoreWebView2EnvironmentWithOptions(
         nullptr, data.c_str(), nullptr,
@@ -313,6 +339,10 @@ void initialiseWebView()
             [assets](HRESULT result, ICoreWebView2Environment *environment) -> HRESULT {
                 if (FAILED(result) || !environment || !g_settingsWindow) {
                     g_initialising = false;
+                    if (g_settingsWindow)
+                        MessageBoxW(g_settingsWindow,
+                                    L"Avatar Suite Settings could not start Microsoft Edge WebView2.\n\nRepair the WebView2 Runtime or reinstall RearSilver Avatar Suite.",
+                                    L"Settings could not open", MB_OK | MB_ICONERROR);
                     return result;
                 }
                 return environment->CreateCoreWebView2Controller(
@@ -320,8 +350,13 @@ void initialiseWebView()
                     Callback<ICoreWebView2CreateCoreWebView2ControllerCompletedHandler>(
                         [assets](HRESULT controllerResult, ICoreWebView2Controller *controller) -> HRESULT {
                             g_initialising = false;
-                            if (FAILED(controllerResult) || !controller || !g_settingsWindow)
+                            if (FAILED(controllerResult) || !controller || !g_settingsWindow) {
+                                if (g_settingsWindow)
+                                    MessageBoxW(g_settingsWindow,
+                                                L"Avatar Suite Settings could not create its WebView2 window.\n\nRestart Avatar Suite. If this continues, repair the WebView2 Runtime.",
+                                                L"Settings could not open", MB_OK | MB_ICONERROR);
                                 return controllerResult;
+                            }
                             g_controller = controller;
                             g_controller->get_CoreWebView2(&g_webView);
                             if (!g_webView)
@@ -380,10 +415,13 @@ void initialiseWebView()
                                                     L"https://github.com/Off-World-Live/obs-spout2-plugin/releases",
                                                     nullptr, nullptr, SW_SHOWNORMAL);
                                             else if (wcscmp(message, L"open-logs-folder") == 0) {
-                                                wchar_t temporaryDirectory[MAX_PATH]{};
-                                                if (GetTempPathW(ARRAYSIZE(temporaryDirectory), temporaryDirectory))
-                                                    ShellExecuteW(g_settingsWindow, L"open", temporaryDirectory,
-                                                                  nullptr, nullptr, SW_SHOWNORMAL);
+                                                wchar_t localAppData[32768]{};
+                                                if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, ARRAYSIZE(localAppData))) {
+                                                    const std::filesystem::path logs = std::filesystem::path(localAppData) / L"RearSilver Avatar" / L"Logs";
+                                                    std::error_code error;
+                                                    std::filesystem::create_directories(logs, error);
+                                                    if (!error) ShellExecuteW(g_settingsWindow, L"open", logs.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                                                }
                                             }
                                             else if (wcsncmp(message, L"export-diagnostics\t", 19) == 0) {
                                                 const bool exported = exportDiagnosticReport(message + 19);
@@ -442,6 +480,7 @@ void initialiseWebView()
                                                 sendPendingPage();
                                                 sendGeneralState();
                                                 sendGuidedSetupState();
+                                                sendBuildState();
                                                 if (g_ownerWindow && IsWindow(g_ownerWindow))
                                                     PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             }

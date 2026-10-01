@@ -17,9 +17,11 @@
 #include "preset_store.h"
 #include "resource.h"
 #include "websocket_server.h"
+#include "rs_build_config.hpp"
 
 #include <algorithm>
 #include <atomic>
+#include <filesystem>
 #include <cmath>
 #include <cctype>
 #include <cstdio>
@@ -59,6 +61,7 @@ std::atomic<bool> g_running{false};
 std::atomic<unsigned long long> g_presetGeneration{1};
 std::atomic<bool> g_applicationActive{true};
 std::atomic<bool> g_dialogOpen{false};
+const bool g_buildExpired = RsBuild::currentState().expired;
 std::atomic<bool> g_reactionsEnabled{true};
 std::atomic<unsigned> g_captureMethod{0};
 std::atomic<unsigned> g_fixedBackgroundMode{0};
@@ -373,10 +376,14 @@ void logMessage(const std::wstring &message)
 
 void startLog()
 {
-    wchar_t tempPath[MAX_PATH + 1]{};
-    if (GetTempPathW(MAX_PATH, tempPath) == 0)
+    wchar_t localAppData[32768]{};
+    if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, ARRAYSIZE(localAppData)) == 0)
         return;
-    const std::wstring path = std::wstring(tempPath) + L"RearSilverAvatar-baseline.log";
+    const std::filesystem::path directory = std::filesystem::path(localAppData) / L"RearSilver Avatar" / L"Logs";
+    std::error_code error;
+    std::filesystem::create_directories(directory, error);
+    if (error) return;
+    const std::wstring path = (directory / L"RearSilverAvatar.log").wstring();
     g_logFile = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
                             CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     logMessage(L"RearSilver Avatar Suite starting");
@@ -2061,6 +2068,14 @@ public:
         const ULONGLONG now = GetTickCount64();
         updateBlinkState(now);
 
+        if (g_buildExpired) {
+            const float transparent[4] = {0, 0, 0, 0};
+            context_->ClearRenderTargetView(target_.Get(), transparent);
+            updateSpoutOutput();
+            check(swapChain_->Present(1, 0));
+            return;
+        }
+
         float clear[4] = {0, 0, 0, 0};
         const unsigned background = g_captureMethod.load() == 1 ? 0 : g_fixedBackgroundMode.load();
         if (background != 0) {
@@ -3392,6 +3407,10 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             request->response = automationCatalogueResponse();
             return 0;
         }
+        if (g_buildExpired) {
+            request->response = "{\"ok\":false,\"error\":\"This Private Beta build has expired. Install a newer build.\"}";
+            return 0;
+        }
         if (action == "sequence.run") {
             const auto steps = jsonObjectArray(request->payload, "steps");
             if (steps.empty() || steps.size() > 32) {
@@ -4276,6 +4295,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 
     ShowWindow(g_mainWindow, showCommand);
     UpdateWindow(g_mainWindow);
+    if (g_buildExpired)
+        MessageBoxW(g_mainWindow,
+                    L"This Private Beta build has expired. Avatar output and automation are disabled.\n\n"
+                    L"Your presets and settings have been preserved. Open Feedback & Diagnostics to export a report, or install a newer build.",
+                    L"RearSilver Avatar Suite Private Beta expired", MB_OK | MB_ICONINFORMATION);
 
     const std::wstring assetsDirectory = executableDirectory();
     g_defaultPrimaryImagePath = assetsDirectory + L"\\default-avatar-idle.png";

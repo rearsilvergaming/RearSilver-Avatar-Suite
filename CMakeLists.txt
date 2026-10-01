@@ -1,5 +1,26 @@
 cmake_minimum_required(VERSION 3.20)
 project(RearSilverAvatarSuite LANGUAGES CXX)
+set(RS_BUILD_CHANNEL "Development Build" CACHE STRING "Build channel shown by Avatar Suite")
+set(RS_BUILD_VERSION "0.1.0-dev" CACHE STRING "Version shown by Avatar Suite")
+set(RS_BUILD_ID "" CACHE STRING "Unique build identifier")
+option(RS_BUILD_EXPIRY_ENABLED "Enforce the configured beta expiry" OFF)
+set(RS_BUILD_EXPIRY_DATE "2026-10-31" CACHE STRING "Beta expiry date in YYYY-MM-DD format")
+set(RS_BUILD_EXPIRY_DISPLAY "31 October 2026" CACHE STRING "Human-readable beta expiry date")
+set(RS_ARTIFACT_DIR "" CACHE PATH "Artifact directory associated with this build profile")
+if(NOT RS_BUILD_EXPIRY_DATE MATCHES "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$")
+  message(FATAL_ERROR "RS_BUILD_EXPIRY_DATE must use YYYY-MM-DD format")
+endif()
+string(TIMESTAMP RS_BUILD_DATE "%Y-%m-%d" UTC)
+if(NOT RS_BUILD_ID)
+  string(TIMESTAMP RS_BUILD_ID "%Y%m%d-%H%M%S" UTC)
+endif()
+if(RS_BUILD_EXPIRY_ENABLED)
+  set(RS_BUILD_EXPIRY_ENABLED_VALUE 1)
+else()
+  set(RS_BUILD_EXPIRY_ENABLED_VALUE 0)
+endif()
+configure_file(src/rs_build_config.hpp.in "${CMAKE_CURRENT_BINARY_DIR}/generated/rs_build_config.hpp" @ONLY)
+configure_file(src/version.rc.in "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc" @ONLY)
 file(GLOB BUILT_IN_LAYER_PNGS CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/assets/Built In Layers/*.png")
 set(SPOUT2_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/third_party/spout2/SPOUTSDK")
 add_library(RearSilverSpout2 STATIC
@@ -19,7 +40,7 @@ target_link_libraries(RearSilverSpout2 PUBLIC opengl32 kernel32 user32 gdi32 win
 if(MSVC)
   target_compile_options(RearSilverSpout2 PRIVATE /EHsc)
 endif()
-add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/audio_monitor.cpp src/preset_store.cpp src/layer_model.cpp src/websocket_server.cpp src/app.rc)
+add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/audio_monitor.cpp src/preset_store.cpp src/layer_model.cpp src/websocket_server.cpp src/app.rc "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc")
 set_target_properties(RearSilverAvatarSuite PROPERTIES OUTPUT_NAME "RearSilver Avatar Suite")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/avatar-settings.html"
   "${CMAKE_CURRENT_BINARY_DIR}/avatar-settings.html" COPYONLY)
@@ -28,7 +49,7 @@ if(MSVC)
   target_compile_options(RearSilverAvatarSuite PRIVATE /utf-8 /EHsc)
 endif()
 target_compile_definitions(RearSilverAvatarSuite PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
-target_include_directories(RearSilverAvatarSuite PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include")
+target_include_directories(RearSilverAvatarSuite PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include" "${CMAKE_CURRENT_BINARY_DIR}/generated")
 target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 msimg32 user32 version bcrypt ws2_32
   RearSilverSpout2
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
@@ -47,6 +68,9 @@ add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/RearSilver Avatar Suite - Header.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/settings-header.png"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/RearSilver Avatar Suite - Badge.png"
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/settings-badge.png"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/rearsilver-avatar-suite-splash.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/splash.png"
@@ -81,6 +105,36 @@ add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Settings.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-settings.png"
   COMMAND_EXPAND_LISTS)
+if(RS_ARTIFACT_DIR)
+  add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
+    COMMAND "${CMAKE_COMMAND}" -E remove_directory "${RS_ARTIFACT_DIR}/app"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${RS_ARTIFACT_DIR}/app/built-in-layers"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<TARGET_FILE:RearSilverAvatarSuite>"
+      "${RS_ARTIFACT_DIR}/app/RearSilver Avatar Suite.exe"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/WebView2Loader.dll"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/avatar-settings.html"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/spout2-license.txt"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/settings-header.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/settings-badge.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/splash.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/Sora-Variable.ttf"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/default-avatar-idle.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/default-avatar-reaction.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-presets.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-reactions-on.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-reactions-off.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-websocket.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-background.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-tools.png"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-settings.png"
+      "${RS_ARTIFACT_DIR}/app"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      ${BUILT_IN_LAYER_PNGS}
+      "${RS_ARTIFACT_DIR}/app/built-in-layers"
+    COMMAND_EXPAND_LISTS)
+endif()
 
 # Preserve Diagnostic 18 as the known-good control while the production renderer is integrated.
 add_executable(RearSilverAvatarDiagnostic18 WIN32 EXCLUDE_FROM_ALL src/sdl_diagnostic.cpp)
