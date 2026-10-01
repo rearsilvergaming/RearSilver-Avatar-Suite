@@ -96,6 +96,44 @@ std::wstring fromUtf8(const std::string &value)
     return result;
 }
 
+std::string toUtf8(const std::wstring &value)
+{
+    if (value.empty()) return {};
+    const int count = WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                                          nullptr, 0, nullptr, nullptr);
+    if (count <= 0) return {};
+    std::string result(static_cast<size_t>(count), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, value.data(), static_cast<int>(value.size()),
+                        result.data(), count, nullptr, nullptr);
+    return result;
+}
+
+std::string jsonQuoted(const std::string &value)
+{
+    std::string result = "\"";
+    for (const unsigned char character : value) {
+        switch (character) {
+        case '\"': result += "\\\""; break;
+        case '\\': result += "\\\\"; break;
+        case '\b': result += "\\b"; break;
+        case '\f': result += "\\f"; break;
+        case '\n': result += "\\n"; break;
+        case '\r': result += "\\r"; break;
+        case '\t': result += "\\t"; break;
+        default:
+            if (character < 0x20) {
+                char escaped[7]{};
+                std::snprintf(escaped, sizeof(escaped), "\\u%04x", character);
+                result += escaped;
+            } else result.push_back(static_cast<char>(character));
+        }
+    }
+    result.push_back('\"');
+    return result;
+}
+
+std::string jsonQuoted(const std::wstring &value) { return jsonQuoted(toUtf8(value)); }
+
 std::string jsonStringValue(const std::string &json, const std::string &key)
 {
     const std::string marker = "\"" + key + "\"";
@@ -3235,6 +3273,102 @@ void constrainWindowToOutputAspect(HWND window, WPARAM edge, RECT &bounds)
         bounds.bottom = bounds.top + outerHeight;
 }
 
+const char *localEffectTypeId(layer_model::LocalEffectType type)
+{
+    switch (type) {
+    case layer_model::LocalEffectType::Sway: return "sway";
+    case layer_model::LocalEffectType::BoundedMovement: return "bounded-movement";
+    case layer_model::LocalEffectType::Orbit: return "orbit";
+    case layer_model::LocalEffectType::LocalPulse: return "local-pulse";
+    case layer_model::LocalEffectType::LocalSpin: return "local-spin";
+    case layer_model::LocalEffectType::ReactionNudge: return "reaction-nudge";
+    case layer_model::LocalEffectType::StateVisibility: return "state-visibility";
+    case layer_model::LocalEffectType::DangleSpring: return "dangle-spring";
+    case layer_model::LocalEffectType::Flutter: return "flutter";
+    case layer_model::LocalEffectType::ArtworkStateChange: return "artwork-state-change";
+    }
+    return "effect";
+}
+
+const char *localEffectTypeName(layer_model::LocalEffectType type)
+{
+    switch (type) {
+    case layer_model::LocalEffectType::Sway: return "Sway";
+    case layer_model::LocalEffectType::BoundedMovement: return "Bounded movement";
+    case layer_model::LocalEffectType::Orbit: return "Orbit";
+    case layer_model::LocalEffectType::LocalPulse: return "Pulse";
+    case layer_model::LocalEffectType::LocalSpin: return "Spin";
+    case layer_model::LocalEffectType::ReactionNudge: return "Reaction nudge";
+    case layer_model::LocalEffectType::StateVisibility: return "State visibility";
+    case layer_model::LocalEffectType::DangleSpring: return "Dangle spring";
+    case layer_model::LocalEffectType::Flutter: return "Flutter";
+    case layer_model::LocalEffectType::ArtworkStateChange: return "Artwork state change";
+    }
+    return "Effect";
+}
+
+std::string automationCatalogueResponse()
+{
+    const auto presets = preset_store::listPresets();
+    layer_model::Composition composition;
+    { std::lock_guard<std::mutex> lock(g_layerStateMutex); composition = g_composition; }
+    std::string json = "{\"ok\":true,\"action\":\"catalog.get\",\"protocolVersion\":1,\"catalog\":{";
+    json += "\"activePreset\":{\"id\":" + jsonQuoted(preset_store::activePresetId()) +
+            ",\"name\":" + jsonQuoted(preset_store::activePresetName()) + "},\"presets\":[";
+    for (size_t index = 0; index < presets.size(); ++index) {
+        if (index) json += ',';
+        json += "{\"id\":" + jsonQuoted(presets[index].id) + ",\"name\":" + jsonQuoted(presets[index].name) +
+                ",\"active\":" + (presets[index].active ? "true" : "false") + "}";
+    }
+    json += "],\"groups\":[";
+    for (size_t index = 0; index < composition.groups.size(); ++index) {
+        if (index) json += ',';
+        const auto &group = composition.groups[index];
+        json += "{\"id\":" + jsonQuoted(group.id) + ",\"name\":" + jsonQuoted(group.name) +
+                ",\"visible\":" + (group.visible ? "true" : "false") + "}";
+    }
+    json += "],\"layers\":[";
+    for (size_t index = 0; index < composition.layers.size(); ++index) {
+        if (index) json += ',';
+        const auto &layer = composition.layers[index];
+        std::wstring groupId;
+        for (const auto &group : composition.groups)
+            if (std::find(group.layerOrder.begin(), group.layerOrder.end(), layer.id) != group.layerOrder.end()) { groupId = group.id; break; }
+        json += "{\"id\":" + jsonQuoted(layer.id) + ",\"name\":" + jsonQuoted(layer.name) +
+                ",\"groupId\":" + jsonQuoted(groupId) + ",\"visible\":" + (layer.visible ? "true" : "false") + "}";
+    }
+    json += "],\"effects\":[";
+    bool firstEffect = true;
+    auto addEffect = [&](const std::string &id, const std::string &name, const std::string &type,
+                         const std::string &ownerType, const std::wstring &ownerId,
+                         const std::wstring &ownerName, bool enabled) {
+        if (!firstEffect) json += ',';
+        firstEffect = false;
+        json += "{\"id\":" + jsonQuoted(id) + ",\"name\":" + jsonQuoted(name) + ",\"type\":" + jsonQuoted(type) +
+                ",\"ownerType\":" + jsonQuoted(ownerType) + ",\"ownerId\":" + jsonQuoted(ownerId) +
+                ",\"ownerName\":" + jsonQuoted(ownerName) + ",\"enabled\":" + (enabled ? "true" : "false") + "}";
+    };
+    auto addLocalEffects = [&](const auto &owner, const char *ownerType) {
+        for (const auto &effect : owner.effects)
+            addEffect(toUtf8(effect.id), localEffectTypeName(effect.type), localEffectTypeId(effect.type),
+                      ownerType, owner.id, owner.name, effect.enabled);
+    };
+    for (const auto &layer : composition.layers) addLocalEffects(layer, "layer");
+    for (const auto &group : composition.groups) addLocalEffects(group, "group");
+    auto addPrimary = [&](const char *id, const char *name, bool added, bool enabled) {
+        if (added) addEffect(id, name, id, "primary", L"primary", L"Primary avatar", enabled);
+    };
+    addPrimary("bounce", "Bounce", g_bounceAdded.load(), g_bounceEnabled.load());
+    addPrimary("breathing", "Breathing", g_breathingAdded.load(), g_breathingEnabled.load());
+    addPrimary("squash", "Squash & stretch", g_squashAdded.load(), g_squashEnabled.load());
+    addPrimary("shake", "Shake", g_shakeAdded.load(), g_shakeEnabled.load());
+    addPrimary("brightness", "Brightness", g_brightnessAdded.load(), g_brightnessEnabled.load());
+    addPrimary("float", "Float", g_floatAdded.load(), g_floatEnabled.load());
+    addPrimary("tilt", "Tilt", g_tiltAdded.load(), g_tiltEnabled.load());
+    json += "],\"savedActions\":[]}}";
+    return json;
+}
+
 LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
@@ -3246,8 +3380,16 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             std::lock_guard<std::mutex> lock(g_webSocketStateMutex);
             g_webSocketLastAction = fromUtf8(action);
         }
+        if (action == "client.hello") {
+            request->response = "{\"ok\":true,\"action\":\"client.hello\",\"server\":\"RearSilver Avatar Suite\",\"protocolVersion\":1,\"capabilities\":[\"catalog.get\",\"preset.activate\",\"sequence.run\"]}";
+            return 0;
+        }
         if (action == "server.status") {
-            request->response = "{\"ok\":true,\"action\":\"server.status\",\"version\":1}";
+            request->response = "{\"ok\":true,\"action\":\"server.status\",\"version\":1,\"protocolVersion\":1}";
+            return 0;
+        }
+        if (action == "catalog.get") {
+            request->response = automationCatalogueResponse();
             return 0;
         }
         if (action == "sequence.run") {
@@ -3344,7 +3486,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             return 0;
         }
         if (action != "preset.activate") {
-            request->response = "{\"ok\":false,\"error\":\"Unknown action. Supported actions: server.status, preset.activate, sequence.run\"}";
+            request->response = "{\"ok\":false,\"error\":\"Unknown action. Supported actions: client.hello, server.status, catalog.get, preset.activate, sequence.run\"}";
             return 0;
         }
         const std::wstring presetId = fromUtf8(jsonStringValue(request->payload, "presetId"));
