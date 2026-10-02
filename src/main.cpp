@@ -1001,6 +1001,55 @@ bool decodePng(const wchar_t *path, PendingImage &decoded, UINT bundledTextureLi
     return true;
 }
 
+uint64_t estimatedDecodedPngBytes(const std::wstring &path)
+{
+    if (path.empty()) return 0;
+    try {
+        ComPtr<IWICImagingFactory> factory;
+        check(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                               IID_PPV_ARGS(&factory)));
+        ComPtr<IWICBitmapDecoder> decoder;
+        check(factory->CreateDecoderFromFilename(path.c_str(), nullptr, GENERIC_READ,
+                                                 WICDecodeMetadataCacheOnDemand, &decoder));
+        ComPtr<IWICBitmapFrameDecode> frame;
+        check(decoder->GetFrame(0, &frame));
+        UINT width = 0, height = 0;
+        check(frame->GetSize(&width, &height));
+        if (width == 0 || height == 0 || width > 8192 || height > 8192) return 0;
+        return static_cast<uint64_t>(width) * static_cast<uint64_t>(height) * 4u;
+    } catch (...) {
+        return 0;
+    }
+}
+
+void sendTextureMemoryEstimate(const layer_model::Composition &composition)
+{
+    uint64_t bytes = 0;
+    unsigned textures = 0;
+    auto include = [&](const std::wstring &path) {
+        const uint64_t decodedBytes = estimatedDecodedPngBytes(path);
+        if (decodedBytes == 0) return;
+        bytes += decodedBytes;
+        ++textures;
+    };
+    const std::wstring primary = loadSetting(L"PrimaryImage");
+    const std::wstring reaction = loadSetting(L"ReactionImage");
+    include(primary.empty() ? g_defaultPrimaryImagePath : primary);
+    include(reaction.empty() ? g_defaultReactionImagePath : reaction);
+    include(loadSetting(L"PrimaryBlinkImage"));
+    include(loadSetting(L"ReactionBlinkImage"));
+    include(loadSetting(L"BackgroundImage"));
+    for (const auto &layer : composition.layers) {
+        include(layer.imagePath);
+        for (const auto &effect : layer.effects) {
+            if (effect.type == layer_model::LocalEffectType::ArtworkStateChange && effect.enabled)
+                include(effect.imagePath);
+        }
+    }
+    postAvatarSettingsMessage(L"texture-memory\t" + std::to_wstring(bytes) + L"\t" +
+                              std::to_wstring(textures));
+}
+
 void reloadDraftLayers()
 {
     layer_model::Composition composition = layer_model::loadDraftComposition();
@@ -1030,7 +1079,8 @@ void reloadDraftLayers()
             logMessage(L"Layer image is unavailable: " + layer.imagePath);
         }
         for (const auto &effect : layer.effects) {
-            if (effect.type != layer_model::LocalEffectType::ArtworkStateChange || effect.imagePath.empty()) continue;
+            if (effect.type != layer_model::LocalEffectType::ArtworkStateChange ||
+                !effect.enabled || effect.imagePath.empty()) continue;
             try {
                 PendingImage decoded;
                 if (!decodePng(effect.imagePath.c_str(), decoded)) throw E_INVALIDARG;
@@ -1238,6 +1288,7 @@ void openPngPicker(HWND owner = nullptr, ImageSlot slot = ImageSlot::Primary)
 void sendLayerState()
 {
     const layer_model::Composition composition = layer_model::loadDraftComposition();
+    sendTextureMemoryEstimate(composition);
     postAvatarSettingsMessage(L"layer-list-reset\t" + std::to_wstring(composition.layers.size()));
     auto sendEffects = [](const std::wstring &ownerKind, const std::wstring &ownerId,
                           const std::vector<layer_model::LocalEffect> &effects) {
@@ -1736,7 +1787,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             return std::find(group.layerOrder.begin(), group.layerOrder.end(), id) != group.layerOrder.end();
         });
     const bool reloadsTextures = action == L"remove" || action == L"effect-artwork-choose" ||
-        action == L"effect-artwork-remove";
+        action == L"effect-artwork-remove" || action == L"effect-enabled";
     if (action == L"remove") {
         layers.erase(found);
         if (parentGroup != composition.groups.end()) {
@@ -1824,7 +1875,8 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             action == L"eye-add" || action == L"eye-remove" ||
             action.rfind(L"effect-add-", 0) == 0 ||
             action == L"effect-remove" || action == L"effect-up" || action == L"effect-down" ||
-            action == L"effect-artwork-choose" || action == L"effect-artwork-remove")
+            action == L"effect-enabled" || action == L"effect-artwork-choose" ||
+            action == L"effect-artwork-remove")
             sendLayerState();
         const bool catalogueChanged = action == L"remove" || action == L"name" ||
             action.rfind(L"effect-add-", 0) == 0 || action == L"effect-remove" ||

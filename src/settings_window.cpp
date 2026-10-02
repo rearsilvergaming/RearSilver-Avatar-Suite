@@ -423,6 +423,15 @@ void initialiseWebView()
                                                     if (!error) ShellExecuteW(g_settingsWindow, L"open", logs.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
                                                 }
                                             }
+                                            else if (wcscmp(message, L"open-application-data") == 0) {
+                                                wchar_t localAppData[32768]{};
+                                                if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, ARRAYSIZE(localAppData))) {
+                                                    const std::filesystem::path applicationData = std::filesystem::path(localAppData) / L"RearSilver Avatar";
+                                                    std::error_code error;
+                                                    std::filesystem::create_directories(applicationData, error);
+                                                    if (!error) ShellExecuteW(g_settingsWindow, L"open", applicationData.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                                                }
+                                            }
                                             else if (wcsncmp(message, L"export-diagnostics\t", 19) == 0) {
                                                 const bool exported = exportDiagnosticReport(message + 19);
                                                 g_webView->PostWebMessageAsString(exported ? L"diagnostics-export\t1"
