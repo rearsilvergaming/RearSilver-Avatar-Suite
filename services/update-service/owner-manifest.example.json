@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "product": "rearsilver-avatar-suite",
+  "channel": "owner-build",
+  "platform": "windows-x64",
+  "version": "1.0.0-owner",
+  "minimum_supported_version": "1.0.0-owner",
+  "minimum_updater_schema": 1,
+  "mandatory": false,
+  "published_at": "2026-09-09T00:00:00Z",
+  "installer": {
+    "filename": "RearSilver-Avatar-Suite-Owner-1.0.0-owner-Setup.exe",
+    "size": 0,
+    "sha256": "",
+    "download_request_url": ""
+  },
+  "release_notes_url": ""
+}

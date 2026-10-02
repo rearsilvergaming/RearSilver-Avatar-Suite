@@ -4,6 +4,8 @@ namespace RsBuild {
 inline constexpr const char kChannel[]="@RS_BUILD_CHANNEL@",kVersion[]="@RS_BUILD_VERSION@",kBuildId[]="@RS_BUILD_ID@",kBuildDate[]="@RS_BUILD_DATE@";
 inline constexpr bool kExpiryEnabled=@RS_BUILD_EXPIRY_ENABLED_VALUE@ != 0;
 inline constexpr const char kExpiryDate[]="@RS_BUILD_EXPIRY_DATE@",kExpiryDisplay[]="@RS_BUILD_EXPIRY_DISPLAY@";
+inline constexpr bool kUpdateCheckEnabled=@RS_UPDATE_CHECK_ENABLED_VALUE@ != 0;
+inline constexpr const char kUpdateBaseUrl[]="@RS_UPDATE_BASE_URL@";
 struct State{int daysRemaining=0;bool warning=false;bool expired=false;};
 constexpr int digits(const char*t,int o,int n){int v=0;for(int i=0;i<n;++i)v=v*10+t[o+i]-'0';return v;}
 constexpr long long dayNumber(int y,unsigned m,unsigned d){y-=m<=2;const int e=(y>=0?y:y-399)/400;const unsigned yo=static_cast<unsigned>(y-e*400),am=m>2?m-3:m+9,dy=(153*am+2)/5+d-1,de=yo*365+yo/4-yo/100+dy;return static_cast<long long>(e)*146097+de;}

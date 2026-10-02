@@ -1,6 +1,7 @@
 #include "settings_window.h"
 #include "resource.h"
 #include "rs_build_config.hpp"
+#include "update_service.hpp"
 #include <commdlg.h>
 #include <objidl.h>
 #include <shobjidl.h>
@@ -11,7 +12,9 @@
 #include <atomic>
 #include <cctype>
 #include <filesystem>
+#include <memory>
 #include <string>
+#include <thread>
 
 using Microsoft::WRL::Callback;
 using Microsoft::WRL::ComPtr;
@@ -29,6 +32,9 @@ bool g_settingsWasMaximised = false;
 std::atomic<bool> g_settingsVisible{false};
 std::wstring g_pendingPage;
 std::wstring g_lastSettingsPage = L"avatar";
+std::atomic<bool> g_updateCheckInProgress{false};
+bool g_automaticUpdateCheckStarted = false;
+constexpr UINT kUpdateFetchCompleteMessage = WM_APP + 1;
 
 int hexadecimalValue(wchar_t character)
 {
@@ -191,6 +197,18 @@ std::wstring widenAscii(const char *text)
     return result;
 }
 
+std::wstring widenUtf8(const std::string &text)
+{
+    if (text.empty()) return {};
+    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                                          static_cast<int>(text.size()), nullptr, 0);
+    if (count <= 0) return {};
+    std::wstring result(count, L'\0');
+    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(),
+                             static_cast<int>(text.size()), result.data(), count)) return {};
+    return result;
+}
+
 void sendBuildState()
 {
     if (!g_webView) return;
@@ -200,6 +218,35 @@ void sendBuildState()
         widenAscii(RsBuild::kBuildDate) + L"\t" + (RsBuild::kExpiryEnabled ? L"1" : L"0") + L"\t" +
         widenAscii(RsBuild::kExpiryDisplay) + L"\t" + std::to_wstring(state.daysRemaining) + L"\t" +
         (state.expired ? L"1" : L"0")).c_str());
+}
+
+void sendUpdateConfiguration()
+{
+    if (!g_webView) return;
+    g_webView->PostWebMessageAsString((L"update-config\t" +
+        std::wstring(RsBuild::kUpdateCheckEnabled ? L"1" : L"0") + L"\t" +
+        widenAscii(RsBuild::kChannel) + L"\t" + widenAscii(RsBuild::kVersion)).c_str());
+}
+
+void startUpdateCheck(bool manual)
+{
+    if (!RsBuild::kUpdateCheckEnabled) {
+        if (g_webView) g_webView->PostWebMessageAsString(L"update-error\t0\tUpdate checks are disabled for this build.");
+        return;
+    }
+    bool expected = false;
+    if (!g_updateCheckInProgress.compare_exchange_strong(expected, true)) return;
+    if (g_webView) g_webView->PostWebMessageAsString(manual ? L"update-checking\t1" : L"update-checking\t0");
+    const HWND target = g_settingsWindow;
+    std::thread([target, manual] {
+        auto *result = new UpdateFetchResult(fetchUpdateManifest(
+            RsBuild::kUpdateBaseUrl, RsBuild::kChannel, manual));
+        if (!target || !IsWindow(target) ||
+            !PostMessageW(target, kUpdateFetchCompleteMessage, 0, reinterpret_cast<LPARAM>(result))) {
+            delete result;
+            g_updateCheckInProgress.store(false);
+        }
+    }).detach();
 }
 
 StreamSuiteState streamSuiteState()
@@ -397,6 +444,8 @@ void initialiseWebView()
                                                 if (g_ownerWindow && IsWindow(g_ownerWindow))
                                                     PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             }
+                                            else if (wcscmp(message, L"update-check") == 0)
+                                                startUpdateCheck(true);
                                             else if (wcscmp(message, L"open-stream-suite") == 0) {
                                                 const StreamSuiteState state = streamSuiteState();
                                                 if (state.installValid && state.companionSupported)
@@ -490,6 +539,11 @@ void initialiseWebView()
                                                 sendGeneralState();
                                                 sendGuidedSetupState();
                                                 sendBuildState();
+                                                sendUpdateConfiguration();
+                                                if (!g_automaticUpdateCheckStarted) {
+                                                    g_automaticUpdateCheckStarted = true;
+                                                    startUpdateCheck(false);
+                                                }
                                                 if (g_ownerWindow && IsWindow(g_ownerWindow))
                                                     PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             }
@@ -772,6 +826,22 @@ LRESULT CALLBACK settingsWindowProcedure(HWND window, UINT message, WPARAM wPara
         else if (wParam == SIZE_RESTORED) g_settingsWasMaximised = false;
         resizeWebView(); return 0;
     case WM_CLOSE: hideSettingsWindow(); return 0;
+    case kUpdateFetchCompleteMessage: {
+        std::unique_ptr<UpdateFetchResult> result(reinterpret_cast<UpdateFetchResult *>(lParam));
+        g_updateCheckInProgress.store(false);
+        if (g_webView && result) {
+            if (result->succeeded) {
+                const std::wstring payload = L"update-manifest\t" +
+                    std::wstring(result->manual ? L"1\t" : L"0\t") + widenUtf8(result->body);
+                g_webView->PostWebMessageAsString(payload.c_str());
+            } else {
+                const std::wstring payload = L"update-error\t" +
+                    std::wstring(result->manual ? L"1\t" : L"0\t") + widenUtf8(result->error);
+                g_webView->PostWebMessageAsString(payload.c_str());
+            }
+        }
+        return 0;
+    }
     case WM_DESTROY: g_settingsWindow = nullptr; return 0;
     default: return DefWindowProcW(window, message, wParam, lParam);
     }
