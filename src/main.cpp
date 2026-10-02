@@ -59,6 +59,7 @@ std::mutex g_webSocketStateMutex;
 std::wstring g_webSocketLastAction;
 std::atomic<bool> g_running{false};
 std::atomic<unsigned long long> g_presetGeneration{1};
+std::atomic<unsigned long long> g_catalogRevision{1};
 std::atomic<bool> g_applicationActive{true};
 std::atomic<bool> g_dialogOpen{false};
 const bool g_buildExpired = RsBuild::currentState().expired;
@@ -1355,6 +1356,14 @@ void sendWebSocketState()
                               std::to_wstring(clients) + L"\t" + std::to_wstring(messages) + L"\t" + lastAction);
 }
 
+void notifyAutomationCatalogueChanged(const char *reason)
+{
+    const unsigned long long revision = g_catalogRevision.fetch_add(1) + 1;
+    if (!g_webSocketServer || !g_webSocketServer->running()) return;
+    g_webSocketServer->broadcastText("{\"event\":\"catalog.changed\",\"protocolVersion\":1,\"catalogRevision\":" +
+        std::to_string(revision) + ",\"reason\":\"" + reason + "\"}");
+}
+
 std::vector<std::wstring> splitPresetCommand(const std::wstring &command)
 {
     std::vector<std::wstring> fields;
@@ -1423,6 +1432,7 @@ void handlePresetCommand(const std::wstring &command)
     const auto fields = splitPresetCommand(command);
     if (fields.empty()) return;
     bool reload = false;
+    bool catalogueChanged = false;
     if (fields[0] == L"select" && fields.size() >= 2) {
         if (fields[1] == preset_store::activePresetId()) return;
         const std::wstring disposition = fields.size() >= 3 ? fields[2] : L"";
@@ -1432,6 +1442,7 @@ void handlePresetCommand(const std::wstring &command)
         }
         g_presetGeneration.fetch_add(1);
         reload = preset_store::selectPreset(fields[1]);
+        catalogueChanged = reload;
     } else if ((fields[0] == L"create" || fields[0] == L"duplicate") && fields.size() >= 2) {
         const std::wstring disposition = fields.size() >= 4 ? fields[3] : L"";
         if (!resolveDirtyPresetSwitch(disposition)) {
@@ -1444,13 +1455,14 @@ void handlePresetCommand(const std::wstring &command)
         if (preset_store::createPreset(fields[1], source, created)) {
             g_presetGeneration.fetch_add(1);
             reload = preset_store::selectPreset(created);
+            catalogueChanged = reload;
         }
     } else if (fields[0] == L"rename" && fields.size() >= 3) {
-        preset_store::renamePreset(fields[1], fields[2]);
+        catalogueChanged = preset_store::renamePreset(fields[1], fields[2]);
     } else if (fields[0] == L"delete" && fields.size() >= 2) {
         const bool wasActive = fields[1] == preset_store::activePresetId();
         if (wasActive) g_presetGeneration.fetch_add(1);
-        if (preset_store::deletePreset(fields[1])) reload = wasActive;
+        if (preset_store::deletePreset(fields[1])) { reload = wasActive; catalogueChanged = true; }
     } else if (fields[0] == L"export" && fields.size() >= 2) {
         exportPresetWithPicker(fields[1]);
     } else if (fields[0] == L"import") {
@@ -1460,12 +1472,14 @@ void handlePresetCommand(const std::wstring &command)
             return;
         }
         reload = importPresetWithPicker();
+        catalogueChanged = reload;
     }
     if (reload) {
         applyPresetDraftToRuntime();
         sendLayerState();
     }
     sendPresetState();
+    if (catalogueChanged) notifyAutomationCatalogueChanged("preset.changed");
 }
 
 void addLayerFromPicker(HWND owner)
@@ -1499,6 +1513,7 @@ void addLayerFromPicker(HWND owner)
             reloadDraftLayers();
             postAvatarSettingsMessage(L"preset-dirty\t1");
             sendLayerState();
+            notifyAutomationCatalogueChanged("layer.added");
         } catch (...) {
             MessageBoxW(picker.hwndOwner,
                         L"Could not add this layer. Choose a valid PNG no larger than 8192 × 8192 pixels.",
@@ -1595,6 +1610,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             }
             if(!layer_model::saveDraftComposition(composition))throw E_FAIL;
             reloadDraftLayers();postAvatarSettingsMessage(L"preset-dirty\t1");sendLayerState();
+            notifyAutomationCatalogueChanged("template.added");
         } catch (...) { MessageBoxW(g_mainWindow,L"The built-in template could not be added.",
             L"RearSilver Avatar Suite — Built-in layers",MB_OK|MB_ICONERROR); }
         return;
@@ -1651,6 +1667,7 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             const bool structuralEffectChange = action.rfind(L"group-effect-add-", 0) == 0 || action == L"group-effect-remove" ||
                 action == L"group-effect-up" || action == L"group-effect-down";
             if (action.rfind(L"group-effect-", 0) != 0 || structuralEffectChange) sendLayerState();
+            notifyAutomationCatalogueChanged("group.added");
         }
         return;
     }
@@ -1700,6 +1717,10 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = composition; }
             postAvatarSettingsMessage(L"preset-dirty\t1");
             sendLayerState();
+            const bool catalogueChanged = action == L"group-remove" || action == L"group-name" ||
+                action.rfind(L"group-effect-add-", 0) == 0 || action == L"group-effect-remove" ||
+                action == L"group-effect-up" || action == L"group-effect-down";
+            if (catalogueChanged) notifyAutomationCatalogueChanged("group.changed");
         }
         return;
     }
@@ -1805,6 +1826,10 @@ void handleLayerCommand(const std::wstring &command, bool previewOnly)
             action == L"effect-remove" || action == L"effect-up" || action == L"effect-down" ||
             action == L"effect-artwork-choose" || action == L"effect-artwork-remove")
             sendLayerState();
+        const bool catalogueChanged = action == L"remove" || action == L"name" ||
+            action.rfind(L"effect-add-", 0) == 0 || action == L"effect-remove" ||
+            action == L"effect-up" || action == L"effect-down";
+        if (catalogueChanged) notifyAutomationCatalogueChanged("layer.changed");
     }
 }
 
@@ -3327,7 +3352,8 @@ std::string automationCatalogueResponse()
     const auto presets = preset_store::listPresets();
     layer_model::Composition composition;
     { std::lock_guard<std::mutex> lock(g_layerStateMutex); composition = g_composition; }
-    std::string json = "{\"ok\":true,\"action\":\"catalog.get\",\"protocolVersion\":1,\"catalog\":{";
+    std::string json = "{\"ok\":true,\"action\":\"catalog.get\",\"protocolVersion\":1,\"catalogRevision\":" +
+        std::to_string(g_catalogRevision.load()) + ",\"catalog\":{";
     json += "\"activePreset\":{\"id\":" + jsonQuoted(preset_store::activePresetId()) +
             ",\"name\":" + jsonQuoted(preset_store::activePresetName()) + "},\"presets\":[";
     for (size_t index = 0; index < presets.size(); ++index) {
@@ -3396,7 +3422,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             g_webSocketLastAction = fromUtf8(action);
         }
         if (action == "client.hello") {
-            request->response = "{\"ok\":true,\"action\":\"client.hello\",\"server\":\"RearSilver Avatar Suite\",\"protocolVersion\":1,\"capabilities\":[\"catalog.get\",\"preset.activate\",\"sequence.run\"]}";
+            request->response = "{\"ok\":true,\"action\":\"client.hello\",\"server\":\"RearSilver Avatar Suite\",\"protocolVersion\":1,\"capabilities\":[\"catalog.get\",\"catalog.changed\",\"preset.activate\",\"sequence.run\"]}";
             return 0;
         }
         if (action == "server.status") {
@@ -3408,19 +3434,20 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             return 0;
         }
         if (g_buildExpired) {
-            request->response = "{\"ok\":false,\"error\":\"This Private Beta build has expired. Install a newer build.\"}";
+            request->response = "{\"ok\":false,\"code\":\"BUILD_EXPIRED\",\"error\":\"This Private Beta build has expired. Install a newer build.\"}";
             return 0;
         }
         if (action == "sequence.run") {
             const auto steps = jsonObjectArray(request->payload, "steps");
             if (steps.empty() || steps.size() > 32) {
-                request->response = "{\"ok\":false,\"error\":\"A sequence requires between 1 and 32 steps\"}";
+                request->response = "{\"ok\":false,\"code\":\"INVALID_STEPS\",\"error\":\"A sequence requires between 1 and 32 steps\"}";
                 return 0;
             }
             layer_model::Composition next;
             { std::lock_guard<std::mutex> lock(g_layerStateMutex); next = g_composition; }
             std::vector<std::pair<std::string, bool>> primaryEffectChanges;
             bool primaryEffectsChanged = false;
+            bool catalogueChanged = false;
             auto applyPending = [&] {
                 { std::lock_guard<std::mutex> lock(g_layerStateMutex); g_composition = next; }
                 for (const auto &[effect, enabled] : primaryEffectChanges) {
@@ -3443,23 +3470,24 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     for (const auto &preset : preset_store::listPresets())
                         if (preset.id == presetId) { exists = true; break; }
                     if (!exists) {
-                        request->response = "{\"ok\":false,\"error\":\"Preset in step " + std::to_string(index + 1) + " was not found\"}";
+                        request->response = "{\"ok\":false,\"code\":\"TARGET_NOT_FOUND\",\"error\":\"Preset in step " + std::to_string(index + 1) + " was not found\"}";
                         return 0;
                     }
                     applyPending();
                     if (!preset_store::selectPreset(presetId) || !preset_store::revertActivePreset()) {
-                        request->response = "{\"ok\":false,\"error\":\"Preset in step " + std::to_string(index + 1) + " could not be activated\"}";
+                        request->response = "{\"ok\":false,\"code\":\"COMMAND_FAILED\",\"error\":\"Preset in step " + std::to_string(index + 1) + " could not be activated\"}";
                         return 0;
                     }
                     ++g_presetGeneration;
                     applyPresetDraftToRuntime();
                     { std::lock_guard<std::mutex> lock(g_layerStateMutex); next = g_composition; }
+                    catalogueChanged = true;
                     continue;
                 }
                 const std::wstring targetId = fromUtf8(jsonStringValue(steps[index], "targetId"));
                 bool enabled = false;
                 if (!jsonBooleanValue(steps[index], "enabled", enabled)) {
-                    request->response = "{\"ok\":false,\"error\":\"Step " + std::to_string(index + 1) + " requires enabled true or false\"}";
+                    request->response = "{\"ok\":false,\"code\":\"INVALID_ARGUMENT\",\"error\":\"Step " + std::to_string(index + 1) + " requires enabled true or false\"}";
                     return 0;
                 }
                 bool found = false;
@@ -3488,11 +3516,11 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
                     };
                     if (!found) apply(next.layers); if (!found) apply(next.groups);
                 } else {
-                    request->response = "{\"ok\":false,\"error\":\"Unsupported action in step " + std::to_string(index + 1) + "\"}";
+                    request->response = "{\"ok\":false,\"code\":\"UNSUPPORTED_ACTION\",\"error\":\"Unsupported action in step " + std::to_string(index + 1) + "\"}";
                     return 0;
                 }
                 if (!found) {
-                    request->response = "{\"ok\":false,\"error\":\"Target in step " + std::to_string(index + 1) + " was not found\"}";
+                    request->response = "{\"ok\":false,\"code\":\"TARGET_NOT_FOUND\",\"error\":\"Target in step " + std::to_string(index + 1) + " was not found\"}";
                     return 0;
                 }
             }
@@ -3501,11 +3529,12 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             sendLayerState();
             sendPresetState();
             if (primaryEffectsChanged) sendBounceSettings();
+            if (catalogueChanged) g_catalogRevision.fetch_add(1);
             request->response = "{\"ok\":true,\"action\":\"sequence.run\",\"steps\":" + std::to_string(steps.size()) + "}";
             return 0;
         }
         if (action != "preset.activate") {
-            request->response = "{\"ok\":false,\"error\":\"Unknown action. Supported actions: client.hello, server.status, catalog.get, preset.activate, sequence.run\"}";
+            request->response = "{\"ok\":false,\"code\":\"UNKNOWN_ACTION\",\"error\":\"Unknown action. Supported actions: client.hello, server.status, catalog.get, preset.activate, sequence.run\"}";
             return 0;
         }
         const std::wstring presetId = fromUtf8(jsonStringValue(request->payload, "presetId"));
@@ -3513,13 +3542,14 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         for (const auto &preset : preset_store::listPresets())
             if (preset.id == presetId) { exists = true; break; }
         if (!exists || !preset_store::selectPreset(presetId) || !preset_store::revertActivePreset()) {
-            request->response = "{\"ok\":false,\"error\":\"Preset ID was not found\"}";
+            request->response = "{\"ok\":false,\"code\":\"TARGET_NOT_FOUND\",\"error\":\"Preset ID was not found\"}";
             return 0;
         }
         ++g_presetGeneration;
         applyPresetDraftToRuntime();
         sendLayerState();
         sendPresetState();
+        g_catalogRevision.fetch_add(1);
         request->response = "{\"ok\":true,\"action\":\"preset.activate\"}";
         return 0;
     }
@@ -3722,6 +3752,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
             applyPresetDraftToRuntime();
             sendLayerState();
             sendPresetState();
+            notifyAutomationCatalogueChanged("preset.reverted");
         }
         return 0;
     case kAvatarSettingsAddLayerMessage:
@@ -3864,6 +3895,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         g_floatAdded.store(containsEffect(L"float"));
         g_tiltAdded.store(containsEffect(L"tilt"));
         saveSetting(L"EffectStack", value);
+        notifyAutomationCatalogueChanged("effects.changed");
         if (!g_bounceAdded.load())
             g_bounceStartedAt.store(0);
         if (!g_squashAdded.load())
@@ -4605,8 +4637,11 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
                 !SendMessageW(g_mainWindow, kWebSocketCommandMessage, 0,
                               reinterpret_cast<LPARAM>(&request))) {
                 if (request.response.empty())
-                    request.response = "{\"ok\":false,\"error\":\"Avatar Suite is shutting down\"}";
+                    request.response = "{\"ok\":false,\"code\":\"SERVER_SHUTTING_DOWN\",\"error\":\"Avatar Suite is shutting down\"}";
             }
+            const std::string requestId = jsonStringValue(payload, "requestId");
+            if (!requestId.empty() && !request.response.empty() && request.response.back() == '}')
+                request.response.insert(request.response.size() - 1, ",\"requestId\":" + jsonQuoted(requestId));
             return request.response;
         })) {
         logMessage(L"WebSocket server could not bind to 127.0.0.1:17891.");

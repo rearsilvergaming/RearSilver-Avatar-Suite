@@ -167,6 +167,8 @@ Overlay state, panel dimensions, and other interface geometry must never be inpu
 - `Revert changes` restores the last saved snapshot. Switching presets with unsaved changes must offer Update, Discard, and Remain choices. Closing the application preserves a recoverable draft rather than silently losing work.
 - Global settings do not mark the preset dirty. These include microphone device and noise calibration, capture and output method, Stream Suite integration, WebSocket server configuration, and general application preferences.
 - WebSocket preset activation always uses the last saved snapshot, never an unfinished draft. Switching a preset must apply its complete visual state atomically so images, layers, blink settings, and effects from different presets are never briefly mixed.
+- The local WebSocket protocol provides dynamic discovery for presets and the active preset's layers, groups, and configured effects. Integrations display friendly names while retaining stable IDs, request a fresh catalogue after connecting or activating a preset, and refresh when Avatar Suite reports `catalog.changed` after catalogue-affecting Settings edits.
+- Catalogue-change notifications support integration configuration such as native sub-action dropdowns. They are transport-level refresh signals and are not required to become user-facing automation triggers.
 - Primary, reaction, and blink images may have different source resolutions. Layer size is anchored to the Primary composition scale and whole-avatar effects are applied as separate root factors, so changing state never resizes an aligned layer merely because the active PNG has different pixel dimensions.
 
 ## Future automation and event integration

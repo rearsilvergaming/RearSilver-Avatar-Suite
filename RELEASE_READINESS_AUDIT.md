@@ -58,6 +58,8 @@ The release executable dependency scan found only Windows system libraries, the 
 - The release executable dependency set contains no Qt or CEF dependency.
 - User data is outside the installation directory and is intentionally retained by uninstall.
 - Owner upgrade smoke testing preserved the existing settings and completed Guided Setup flag, created both Start Menu shortcuts, and removed the Program Files installation directory cleanly on uninstall.
+- WebSocket protocol version 1 runtime testing confirmed capability negotiation, request-ID correlation, dynamic catalogue discovery, catalogue revisions, `catalog.changed` broadcasts, and stable machine-readable error codes.
+- SAMMI extension 0.3.2 remained connected and automatically refreshed its friendly preset, layer, group, and effect catalogue after an Avatar Suite catalogue change without manual intervention.
 
 ## Required external validation before public release
 

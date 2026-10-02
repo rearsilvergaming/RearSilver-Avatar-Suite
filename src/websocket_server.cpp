@@ -129,6 +129,7 @@ struct WebSocketServer::Impl {
     std::atomic<unsigned> clients{0};
     std::atomic<unsigned long long> messages{0};
     std::mutex clientMutex;
+    std::mutex sendMutex;
     std::vector<SOCKET> clientSockets;
     std::vector<std::thread> clientThreads;
 
@@ -171,11 +172,18 @@ struct WebSocketServer::Impl {
             if (length && recv(socket, payload.data(), static_cast<int>(length), MSG_WAITALL) != static_cast<int>(length)) break;
             for (size_t i = 0; i < payload.size(); ++i) payload[i] ^= static_cast<char>(mask[i % 4]);
             if (opcode == 8) break;
-            if (opcode == 9) { if (!sendFrame(socket, 10, payload)) break; continue; }
+            if (opcode == 9) {
+                std::lock_guard<std::mutex> sendLock(sendMutex);
+                if (!sendFrame(socket, 10, payload)) break;
+                continue;
+            }
             if (opcode != 1) continue;
             messages.fetch_add(1);
-            const std::string reply = handler ? handler(payload) : "{\"ok\":false,\"error\":\"Server unavailable\"}";
-            if (!sendFrame(socket, 1, reply)) break;
+            const std::string reply = handler ? handler(payload) : "{\"ok\":false,\"code\":\"SERVER_UNAVAILABLE\",\"error\":\"Server unavailable\"}";
+            {
+                std::lock_guard<std::mutex> sendLock(sendMutex);
+                if (!sendFrame(socket, 1, reply)) break;
+            }
         }
         clients.fetch_sub(1);
         closesocket(socket);
@@ -248,3 +256,12 @@ bool WebSocketServer::running() const { return impl_->active.load(); }
 unsigned short WebSocketServer::port() const { return impl_->boundPort; }
 unsigned WebSocketServer::connectedClients() const { return impl_->clients.load(); }
 unsigned long long WebSocketServer::messagesReceived() const { return impl_->messages.load(); }
+
+void WebSocketServer::broadcastText(const std::string &payload)
+{
+    if (!impl_->active.load()) return;
+    std::lock_guard<std::mutex> clientsLock(impl_->clientMutex);
+    std::lock_guard<std::mutex> sendLock(impl_->sendMutex);
+    for (SOCKET socket : impl_->clientSockets)
+        if (socket != INVALID_SOCKET) sendFrame(socket, 1, payload);
+}

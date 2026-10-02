@@ -18,6 +18,7 @@ public:
     unsigned short port() const;
     unsigned connectedClients() const;
     unsigned long long messagesReceived() const;
+    void broadcastText(const std::string &payload);
 
 private:
     struct Impl;

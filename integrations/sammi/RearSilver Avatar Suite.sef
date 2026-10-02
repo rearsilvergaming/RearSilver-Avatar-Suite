@@ -1,9 +1,9 @@
 [extension_name]
 RearSilver Avatar Suite
 [extension_info]
-Connects SAMMI Bridge to RearSilver Avatar Suite through its local WebSocket server. Version 0.3.1. Author: RearSilver.
+Connects SAMMI Bridge to RearSilver Avatar Suite through its local WebSocket server. Version 0.3.2. Author: RearSilver.
 [extension_version]
-0.3.1
+0.3.2
 [insert_external]
 <style>
 #rearsilver-avatar-suite-panel{--ras-bg:#0e151e;--ras-surface:#111821;--ras-raised:#17202c;--ras-border:#344257;--ras-text:#e6e8eb;--ras-muted:#9db0c7;--ras-cyan:#00d4ff;--ras-cyan-dark:#075166;box-sizing:border-box;margin:-12px;padding:24px;min-height:440px;border-radius:0 0 12px 12px;background:var(--ras-bg);color:var(--ras-text);font-family:Sora,"Segoe UI",sans-serif}
@@ -123,9 +123,10 @@ var RearSilverAvatarSuite = (function () {
     clearReconnectTimer(); if (socket && (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING)) return;
     setStatus("Connecting…", "#f0ad4e");
     try { socket = new WebSocket(endpoint); } catch (error) { socket = null; setStatus("Connection failed", "#ff5c70"); setResponse(String(error)); scheduleReconnect(); return; }
-    socket.onopen = function () { setStatus("Connected — verifying…", "#f0ad4e"); setResponse("Verifying Avatar Suite…"); flushPendingMessages(); send({ action: "client.hello", client: "SAMMI", clientVersion: "0.3.1" }, false); };
+    socket.onopen = function () { setStatus("Connected — verifying…", "#f0ad4e"); setResponse("Verifying Avatar Suite…"); flushPendingMessages(); send({ action: "client.hello", client: "SAMMI", clientVersion: "0.3.2" }, false); };
     socket.onmessage = function (event) {
       var raw = String(event.data), message; setDiagnostics(raw); try { message = JSON.parse(raw); } catch (error) { setResponse("Avatar Suite returned an unreadable response."); return; }
+      if (message.event === "catalog.changed") { setResponse("Avatar Suite changed. Refreshing catalogue…"); send({ action: "catalog.get" }, false); return; }
       if (!message.ok) { setResponse(message.error || "Avatar Suite could not complete the command."); return; }
       if (message.action === "client.hello") { setStatus("Connected and verified", "#2ecc71"); setResponse("Connection verified. Loading catalogue…"); send({ action: "catalog.get" }, false); }
       else if (message.action === "catalog.get" && message.ok && message.catalog) {
