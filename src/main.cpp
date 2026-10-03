@@ -46,7 +46,6 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"RearSilverAvatarWindow";
 constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar Suite";
-constexpr wchar_t kUpdateNoticeClass[] = L"RearSilverAvatarUpdateNotice";
 constexpr wchar_t kSingleInstanceMutex[] = L"Local\\RearSilverAvatarSuite.SingleInstance";
 constexpr UINT kRenderFailureMessage = WM_APP + 1;
 constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
@@ -62,7 +61,6 @@ constexpr UINT kOutputHeight = 1080;
 constexpr UINT kOutputUiDpi = 192;
 
 HWND g_mainWindow = nullptr;
-HWND g_updateNoticeWindow = nullptr;
 std::unique_ptr<WebSocketServer> g_webSocketServer;
 std::mutex g_webSocketStateMutex;
 std::wstring g_webSocketLastAction;
@@ -97,7 +95,6 @@ std::atomic<bool> g_updateDownloadCancel{false};
 UpdateCheckResult g_updateResult;
 UpdateDownloadProgress g_updateProgress;
 bool g_updateHasResult=false;
-std::string g_notifiedUpdateVersion;
 
 struct WebSocketCommandRequest {
     std::string payload;
@@ -3547,20 +3544,6 @@ void startAvatarUpdateDownload()
     std::thread([update,token=std::move(token)]() mutable {downloadAndVerifyAvatarUpdate(update,token,g_updateDownloadCancel,[](const UpdateDownloadProgress&p){auto *copy=new UpdateDownloadProgress(p);if(!g_mainWindow||!PostMessageW(g_mainWindow,kUpdateDownloadProgressMessage,0,reinterpret_cast<LPARAM>(copy)))delete copy;});if(!token.empty())SecureZeroMemory(token.data(),token.size());}).detach();
 }
 
-LRESULT CALLBACK updateNoticeProcedure(HWND window,UINT message,WPARAM wParam,LPARAM lParam)
-{
-    if(message==WM_COMMAND){if(LOWORD(wParam)==1){showAvatarSettingsWindow(g_mainWindow,L"updates");DestroyWindow(window);return 0;}if(LOWORD(wParam)==2){DestroyWindow(window);return 0;}}
-    if(message==WM_DESTROY){if(g_updateNoticeWindow==window)g_updateNoticeWindow=nullptr;return 0;}
-    return DefWindowProcW(window,message,wParam,lParam);
-}
-void showUpdateNotification()
-{
-    if(g_updateNoticeWindow||g_updateResult.status!=UpdateCheckStatus::Available||g_notifiedUpdateVersion==g_updateResult.availableVersion)return;
-    g_notifiedUpdateVersion=g_updateResult.availableVersion;
-    RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);g_updateNoticeWindow=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,kUpdateNoticeClass,L"Avatar Suite update available",WS_POPUP|WS_BORDER,work.right-390,work.bottom-150,370,125,g_mainWindow,nullptr,GetModuleHandleW(nullptr),nullptr);if(!g_updateNoticeWindow)return;
-    std::wstring text=L"Avatar Suite "+fromUtf8(g_updateResult.availableVersion)+L" is available.";CreateWindowExW(0,L"STATIC",text.c_str(),WS_CHILD|WS_VISIBLE,18,16,330,28,g_updateNoticeWindow,nullptr,GetModuleHandleW(nullptr),nullptr);CreateWindowExW(0,L"BUTTON",L"View update",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,120,65,110,32,g_updateNoticeWindow,(HMENU)1,GetModuleHandleW(nullptr),nullptr);CreateWindowExW(0,L"BUTTON",L"Later",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,240,65,90,32,g_updateNoticeWindow,(HMENU)2,GetModuleHandleW(nullptr),nullptr);ShowWindow(g_updateNoticeWindow,SW_SHOWNOACTIVATE);SetWindowPos(g_updateNoticeWindow,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
-}
-
 void cleanupStaleUpdateHelpers()
 {
     wchar_t local[32768]{};
@@ -3634,7 +3617,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         return DefWindowProcW(window,message,wParam,lParam);
     case kUpdateCheckCompleteMessage: {
         std::unique_ptr<UpdateCheckResult> result(reinterpret_cast<UpdateCheckResult*>(lParam));
-        if(result){g_updateResult=*result;g_updateHasResult=true;}g_updateCheckRunning.store(false);sendUpdateState();if(result&&result->status==UpdateCheckStatus::Available)showUpdateNotification();
+        if(result){g_updateResult=*result;g_updateHasResult=true;}g_updateCheckRunning.store(false);sendUpdateState();
         if(result&&result->manual&&result->status==UpdateCheckStatus::Error)logMessage(L"Manual update check failed: "+fromUtf8(result->message));
         else if(result&&result->status==UpdateCheckStatus::Error)logMessage(L"Automatic update check failed quietly: "+fromUtf8(result->message));
         return 0;
@@ -4540,8 +4523,6 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
             CloseHandle(singleInstance);
         return 2;
     }
-    WNDCLASSEXW noticeClass{};noticeClass.cbSize=sizeof(noticeClass);noticeClass.hInstance=instance;noticeClass.lpfnWndProc=updateNoticeProcedure;noticeClass.lpszClassName=kUpdateNoticeClass;noticeClass.hCursor=LoadCursorW(nullptr,IDC_ARROW);noticeClass.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);RegisterClassExW(&noticeClass);
-
     RECT initialBounds{0, 0, 960, 540};
     AdjustWindowRectExForDpi(&initialBounds, WS_OVERLAPPEDWINDOW, FALSE, 0,
                              GetDpiForSystem());
