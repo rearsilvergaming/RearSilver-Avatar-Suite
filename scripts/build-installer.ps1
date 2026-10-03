@@ -58,6 +58,7 @@ foreach ($prerequisite in $prerequisites) {
 
 $runtimeFiles = @(
     'RearSilver Avatar Suite.exe',
+    'RearSilver-Avatar-Suite-Updater.exe',
     'WebView2Loader.dll',
     'avatar-settings.html',
     'spout2-license.txt',
