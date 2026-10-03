@@ -13,7 +13,7 @@ Unicode True
   !error "RS_PREREQUISITE_ROOT must contain the verified Microsoft prerequisite installers."
 !endif
 !ifndef RS_VERSION
-  !define RS_VERSION "1.0.0-owner.6"
+  !define RS_VERSION "1.0.0-owner.7"
 !endif
 !ifndef RS_CHANNEL
   !define RS_CHANNEL "Owner Build"
