@@ -1,7 +1,7 @@
 RearSilver Avatar Suite
 Software Licence Agreement
 
-Copyright © 2026 RearSilver.
+Copyright (c) 2026 RearSilver.
 All rights reserved.
 
 IMPORTANT: PLEASE READ THIS LICENCE CAREFULLY BEFORE USING THIS SOFTWARE.

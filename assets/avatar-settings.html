@@ -1196,10 +1196,23 @@ microphoneDevice.onchange=()=>{
 };
 const updateUi={enabled:false,channel:'',version:''};
 function setUpdateState(tag,message){document.getElementById('update-status-tag').textContent=tag;document.getElementById('update-message').textContent=message}
+function formatUpdateDate(value){
+ if(!value)return'Not checked';
+ const date=new Date(value);
+ if(Number.isNaN(date.getTime()))return value;
+ return new Intl.DateTimeFormat('en-GB',{dateStyle:'long',timeStyle:'short'}).format(date);
+}
+function formatUpdateBytes(value){
+ const bytes=Number(value)||0;
+ if(bytes<1024)return`${bytes} B`;
+ const units=['KB','MB','GB','TB'];let amount=bytes/1024,index=0;
+ while(amount>=1024&&index<units.length-1){amount/=1024;index++}
+ return`${amount<10?amount.toFixed(1):Math.round(amount)} ${units[index]}`;
+}
 function renderNativeUpdate(state){
  const available=state.status==='available',verified=state.downloadStatus==='verified',running=['downloading','verifying'].includes(state.downloadStatus);
  document.getElementById('update-available-version').textContent=state.availableVersion||'Not checked';
- document.getElementById('update-published').textContent=state.publishedAt||'Not checked';
+ document.getElementById('update-published').textContent=formatUpdateDate(state.publishedAt);
  setUpdateState(state.tag||'UNAVAILABLE',state.message||'No update information is available.');
  const list=document.getElementById('update-release-notes');list.replaceChildren();(available?state.releaseNotes||[]:[]).forEach(note=>{const li=document.createElement('li');li.textContent=note;list.append(li)});
  document.getElementById('update-notes-card').hidden=!available||!list.children.length;
@@ -1208,8 +1221,14 @@ function renderNativeUpdate(state){
  document.getElementById('cancel-update').hidden=!running;
  document.getElementById('install-update').hidden=!verified;
  document.getElementById('check-for-updates').disabled=!updateUi.enabled||state.status==='checking'||running;
- document.getElementById('update-download-message').textContent=state.downloadMessage||'';
- const progress=document.getElementById('update-download-progress');progress.hidden=!running;progress.value=state.downloadTotal?Math.min(100,Math.floor(state.downloadTransferred*100/state.downloadTotal)):0;
+ const transferred=Number(state.downloadTransferred)||0,total=Number(state.downloadTotal)||0;
+ const percentage=total?Math.min(100,Math.floor(transferred*100/total)):0;
+ let downloadMessage=state.downloadMessage||'';
+ if(state.downloadStatus==='downloading'&&total){downloadMessage+=` ${percentage}% · ${formatUpdateBytes(transferred)} of ${formatUpdateBytes(total)}`}
+ else if(state.downloadStatus==='verifying'&&total){downloadMessage+=` ${formatUpdateBytes(total)}`}
+ else if(verified&&total){downloadMessage+=` ${formatUpdateBytes(total)}`}
+ document.getElementById('update-download-message').textContent=downloadMessage;
+ const progress=document.getElementById('update-download-progress');progress.hidden=!running;progress.value=percentage;
  document.getElementById('update-nav-badge').classList.toggle('visible',available);
  document.getElementById('sidebar-update-notice').hidden=!available;
 }
