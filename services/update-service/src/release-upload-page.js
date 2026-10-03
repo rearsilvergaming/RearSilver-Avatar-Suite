@@ -130,12 +130,12 @@ const publishApi='/v1/admin/releases/publish';
 
 const staticExamples={
   'owner-build':{
-    version:'1.0.0-owner.4',
-    minimum:'1.0.0-owner.3'
+    version:'1.0.0-owner.5',
+    minimum:'1.0.0-owner.5'
   },
   'private-beta':{
-    version:'1.0.0-beta.1',
-    minimum:'1.0.0-beta.1'
+    version:'1.0.0-beta.2',
+    minimum:'1.0.0-beta.2'
   }
 };
 
