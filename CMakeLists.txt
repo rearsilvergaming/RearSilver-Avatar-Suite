@@ -1,5 +1,6 @@
 cmake_minimum_required(VERSION 3.20)
 project(RearSilverAvatarSuite LANGUAGES CXX)
+include(CTest)
 set(RS_BUILD_CHANNEL "Development Build" CACHE STRING "Build channel shown by Avatar Suite")
 set(RS_BUILD_VERSION "0.1.0-dev" CACHE STRING "Version shown by Avatar Suite")
 set(RS_BUILD_ID "" CACHE STRING "Unique build identifier")
@@ -9,6 +10,8 @@ set(RS_BUILD_EXPIRY_DISPLAY "31 October 2026" CACHE STRING "Human-readable beta 
 set(RS_ARTIFACT_DIR "" CACHE PATH "Artifact directory associated with this build profile")
 option(RS_UPDATE_CHECK_ENABLED "Enable update detection in this build variant" OFF)
 set(RS_UPDATE_BASE_URL "" CACHE STRING "HTTPS origin serving RearSilver Avatar Suite update manifests")
+set(RS_UPDATE_DOWNLOAD_TOKEN "" CACHE STRING "Private Beta download credential")
+mark_as_advanced(RS_UPDATE_DOWNLOAD_TOKEN)
 if(NOT RS_BUILD_EXPIRY_DATE MATCHES "^[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]$")
   message(FATAL_ERROR "RS_BUILD_EXPIRY_DATE must use YYYY-MM-DD format")
 endif()
@@ -25,6 +28,9 @@ if(RS_UPDATE_CHECK_ENABLED)
   set(RS_UPDATE_CHECK_ENABLED_VALUE 1)
 else()
   set(RS_UPDATE_CHECK_ENABLED_VALUE 0)
+endif()
+if(RS_UPDATE_CHECK_ENABLED AND RS_BUILD_CHANNEL STREQUAL "Private Beta" AND NOT RS_UPDATE_DOWNLOAD_TOKEN)
+  message(FATAL_ERROR "Private Beta update builds require RS_UPDATE_DOWNLOAD_TOKEN at configure time; never store it in CMakePresets.json or Git.")
 endif()
 configure_file(src/rs_build_config.hpp.in "${CMAKE_CURRENT_BINARY_DIR}/generated/rs_build_config.hpp" @ONLY)
 configure_file(src/version.rc.in "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc" @ONLY)
@@ -47,25 +53,53 @@ target_link_libraries(RearSilverSpout2 PUBLIC opengl32 kernel32 user32 gdi32 win
 if(MSVC)
   target_compile_options(RearSilverSpout2 PRIVATE /EHsc)
 endif()
-add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/update_service.cpp src/audio_monitor.cpp src/preset_store.cpp src/layer_model.cpp src/websocket_server.cpp src/app.rc "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc")
+add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/update_service.cpp src/update_version.cpp src/update_download.cpp src/audio_monitor.cpp src/preset_store.cpp src/layer_model.cpp src/websocket_server.cpp src/app.rc "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc")
+add_executable(RearSilverAvatarUpdater WIN32 src/updater/updater_main.cpp)
+set_target_properties(RearSilverAvatarUpdater PROPERTIES OUTPUT_NAME "RearSilver-Avatar-Suite-Updater")
+target_compile_features(RearSilverAvatarUpdater PRIVATE cxx_std_17)
+target_compile_definitions(RearSilverAvatarUpdater PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(RearSilverAvatarUpdater PRIVATE shell32 advapi32 bcrypt)
+add_dependencies(RearSilverAvatarSuite RearSilverAvatarUpdater)
 set_target_properties(RearSilverAvatarSuite PROPERTIES OUTPUT_NAME "RearSilver Avatar Suite")
 configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/avatar-settings.html"
   "${CMAKE_CURRENT_BINARY_DIR}/avatar-settings.html" COPYONLY)
 target_compile_features(RearSilverAvatarSuite PRIVATE cxx_std_17)
 if(MSVC)
+  target_compile_options(RearSilverAvatarUpdater PRIVATE /utf-8 /EHsc)
   target_compile_options(RearSilverAvatarSuite PRIVATE /utf-8 /EHsc)
 endif()
 target_compile_definitions(RearSilverAvatarSuite PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_include_directories(RearSilverAvatarSuite PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/include" "${CMAKE_CURRENT_BINARY_DIR}/generated")
-target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 msimg32 user32 version bcrypt ws2_32 winhttp
+target_link_libraries(RearSilverAvatarSuite PRIVATE d3d11 dxgi dcomp d3dcompiler windowscodecs ole32 propsys comdlg32 gdi32 msimg32 user32 version bcrypt ws2_32 winhttp windowsapp advapi32
   RearSilverSpout2
   "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/lib/x64/WebView2Loader.dll.lib")
+if(BUILD_TESTING)
+  add_executable(RearSilverAvatarUpdateManifestTests tests/update_manifest_tests.cpp src/update_service.cpp src/update_version.cpp)
+  target_compile_features(RearSilverAvatarUpdateManifestTests PRIVATE cxx_std_17)
+  target_include_directories(RearSilverAvatarUpdateManifestTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(RearSilverAvatarUpdateManifestTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_link_libraries(RearSilverAvatarUpdateManifestTests PRIVATE winhttp windowsapp)
+  if(MSVC)
+    target_compile_options(RearSilverAvatarUpdateManifestTests PRIVATE /utf-8 /EHsc)
+  endif()
+  add_test(NAME update-manifest-validation COMMAND RearSilverAvatarUpdateManifestTests)
+  add_executable(RearSilverAvatarUpdateDownloadTests tests/update_download_tests.cpp src/update_download.cpp)
+  target_compile_features(RearSilverAvatarUpdateDownloadTests PRIVATE cxx_std_17)
+  target_include_directories(RearSilverAvatarUpdateDownloadTests PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
+  target_compile_definitions(RearSilverAvatarUpdateDownloadTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+  target_link_libraries(RearSilverAvatarUpdateDownloadTests PRIVATE winhttp bcrypt)
+  if(MSVC)
+    target_compile_options(RearSilverAvatarUpdateDownloadTests PRIVATE /utf-8 /EHsc)
+  endif()
+  add_test(NAME update-download-validation COMMAND RearSilverAvatarUpdateDownloadTests)
+endif()
 add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/built-in-layers"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different ${BUILT_IN_LAYER_PNGS} "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/built-in-layers"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webview2/bin/x64/WebView2Loader.dll"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different "$<TARGET_FILE:RearSilverAvatarUpdater>" "$<TARGET_FILE_DIR:RearSilverAvatarSuite>"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/avatar-settings.html"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/avatar-settings.html"
@@ -121,6 +155,7 @@ if(RS_ARTIFACT_DIR)
       "${RS_ARTIFACT_DIR}/app/RearSilver Avatar Suite.exe"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
       "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/WebView2Loader.dll"
+      "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/RearSilver-Avatar-Suite-Updater.exe"
       "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/avatar-settings.html"
       "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/spout2-license.txt"
       "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/settings-header.png"

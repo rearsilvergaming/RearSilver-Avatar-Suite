@@ -1,7 +1,6 @@
 #include "settings_window.h"
 #include "resource.h"
 #include "rs_build_config.hpp"
-#include "update_service.hpp"
 #include <commdlg.h>
 #include <objidl.h>
 #include <shobjidl.h>
@@ -32,9 +31,7 @@ bool g_settingsWasMaximised = false;
 std::atomic<bool> g_settingsVisible{false};
 std::wstring g_pendingPage;
 std::wstring g_lastSettingsPage = L"avatar";
-std::atomic<bool> g_updateCheckInProgress{false};
-bool g_automaticUpdateCheckStarted = false;
-constexpr UINT kUpdateFetchCompleteMessage = WM_APP + 1;
+bool g_pendingPostUpgradeReview = false;
 
 int hexadecimalValue(wchar_t character)
 {
@@ -226,27 +223,6 @@ void sendUpdateConfiguration()
     g_webView->PostWebMessageAsString((L"update-config\t" +
         std::wstring(RsBuild::kUpdateCheckEnabled ? L"1" : L"0") + L"\t" +
         widenAscii(RsBuild::kChannel) + L"\t" + widenAscii(RsBuild::kVersion)).c_str());
-}
-
-void startUpdateCheck(bool manual)
-{
-    if (!RsBuild::kUpdateCheckEnabled) {
-        if (g_webView) g_webView->PostWebMessageAsString(L"update-error\t0\tUpdate checks are disabled for this build.");
-        return;
-    }
-    bool expected = false;
-    if (!g_updateCheckInProgress.compare_exchange_strong(expected, true)) return;
-    if (g_webView) g_webView->PostWebMessageAsString(manual ? L"update-checking\t1" : L"update-checking\t0");
-    const HWND target = g_settingsWindow;
-    std::thread([target, manual] {
-        auto *result = new UpdateFetchResult(fetchUpdateManifest(
-            RsBuild::kUpdateBaseUrl, RsBuild::kChannel, manual));
-        if (!target || !IsWindow(target) ||
-            !PostMessageW(target, kUpdateFetchCompleteMessage, 0, reinterpret_cast<LPARAM>(result))) {
-            delete result;
-            g_updateCheckInProgress.store(false);
-        }
-    }).detach();
 }
 
 StreamSuiteState streamSuiteState()
@@ -444,8 +420,14 @@ void initialiseWebView()
                                                 if (g_ownerWindow && IsWindow(g_ownerWindow))
                                                     PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
                                             }
-                                            else if (wcscmp(message, L"update-check") == 0)
-                                                startUpdateCheck(true);
+                                            else if (wcscmp(message, L"update-check") == 0 && g_ownerWindow)
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsUpdateCheckMessage, 0, 0);
+                                            else if (wcscmp(message, L"update-download") == 0 && g_ownerWindow)
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsUpdateDownloadMessage, 0, 0);
+                                            else if (wcscmp(message, L"update-cancel") == 0 && g_ownerWindow)
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsUpdateCancelMessage, 0, 0);
+                                            else if (wcscmp(message, L"update-install") == 0 && g_ownerWindow)
+                                                PostMessageW(g_ownerWindow, kAvatarSettingsUpdateInstallMessage, 0, 0);
                                             else if (wcscmp(message, L"open-stream-suite") == 0) {
                                                 const StreamSuiteState state = streamSuiteState();
                                                 if (state.installValid && state.companionSupported)
@@ -540,9 +522,9 @@ void initialiseWebView()
                                                 sendGuidedSetupState();
                                                 sendBuildState();
                                                 sendUpdateConfiguration();
-                                                if (!g_automaticUpdateCheckStarted) {
-                                                    g_automaticUpdateCheckStarted = true;
-                                                    startUpdateCheck(false);
+                                                if (g_pendingPostUpgradeReview) {
+                                                    g_pendingPostUpgradeReview = false;
+                                                    g_webView->PostWebMessageAsString(L"setup-review-start");
                                                 }
                                                 if (g_ownerWindow && IsWindow(g_ownerWindow))
                                                     PostMessageW(g_ownerWindow, kAvatarSettingsReadyMessage, 0, 0);
@@ -826,22 +808,6 @@ LRESULT CALLBACK settingsWindowProcedure(HWND window, UINT message, WPARAM wPara
         else if (wParam == SIZE_RESTORED) g_settingsWasMaximised = false;
         resizeWebView(); return 0;
     case WM_CLOSE: hideSettingsWindow(); return 0;
-    case kUpdateFetchCompleteMessage: {
-        std::unique_ptr<UpdateFetchResult> result(reinterpret_cast<UpdateFetchResult *>(lParam));
-        g_updateCheckInProgress.store(false);
-        if (g_webView && result) {
-            if (result->succeeded) {
-                const std::wstring payload = L"update-manifest\t" +
-                    std::wstring(result->manual ? L"1\t" : L"0\t") + widenUtf8(result->body);
-                g_webView->PostWebMessageAsString(payload.c_str());
-            } else {
-                const std::wstring payload = L"update-error\t" +
-                    std::wstring(result->manual ? L"1\t" : L"0\t") + widenUtf8(result->error);
-                g_webView->PostWebMessageAsString(payload.c_str());
-            }
-        }
-        return 0;
-    }
     case WM_DESTROY: g_settingsWindow = nullptr; return 0;
     default: return DefWindowProcW(window, message, wParam, lParam);
     }
@@ -883,6 +849,21 @@ bool showAvatarSettingsWindow(HWND owner, const std::wstring &page)
     else
         initialiseWebView();
     sendPendingPage();
+    return true;
+}
+
+bool showAvatarPostUpgradeReview(HWND owner)
+{
+    saveGuidedSetupState(GuidedSetupState{false, 0, kGuidedSetupSchemaVersion});
+    g_pendingPostUpgradeReview = true;
+    if (!showAvatarSettingsWindow(owner, L"presets")) {
+        g_pendingPostUpgradeReview = false;
+        return false;
+    }
+    if (g_webViewReady && g_webView) {
+        g_pendingPostUpgradeReview = false;
+        g_webView->PostWebMessageAsString(L"setup-review-start");
+    }
     return true;
 }
 

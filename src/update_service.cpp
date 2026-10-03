@@ -1,121 +1,40 @@
 #include <windows.h>
 #include <winhttp.h>
-
+#include <winrt/base.h>
+#include <winrt/Windows.Foundation.Collections.h>
+#include <winrt/Windows.Data.Json.h>
 #include "update_service.hpp"
-
+#include "update_version.hpp"
+#include <algorithm>
 #include <cctype>
+#include <cmath>
 #include <memory>
 
 namespace {
-constexpr size_t kMaximumManifestBytes = 128 * 1024;
-using WinHttpHandle = std::unique_ptr<void, decltype(&WinHttpCloseHandle)>;
-
-std::string channelSlug(const std::string &channel)
-{
-    std::string slug;
-    for (const unsigned char character : channel) {
-        if (std::isalnum(character)) slug.push_back(static_cast<char>(std::tolower(character)));
-        else if (!slug.empty() && slug.back() != '-') slug.push_back('-');
-    }
-    while (!slug.empty() && slug.back() == '-') slug.pop_back();
-    return slug;
+constexpr size_t kMaximumManifestBytes=128*1024;
+using Handle=std::unique_ptr<void,decltype(&WinHttpCloseHandle)>;
+struct Location{std::wstring host,path;INTERNET_PORT port=0;};
+std::wstring wide(const std::string&s){if(s.empty())return{};int n=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,s.data(),int(s.size()),nullptr,0);if(n<=0)return{};std::wstring w(n,L'\0');return MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,s.data(),int(s.size()),w.data(),n)?w:std::wstring{};}
+std::string narrow(const winrt::hstring&w){if(w.empty())return{};int n=WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,w.data(),int(w.size()),nullptr,0,nullptr,nullptr);if(n<=0)return{};std::string s(n,'\0');return WideCharToMultiByte(CP_UTF8,WC_ERR_INVALID_CHARS,w.data(),int(w.size()),s.data(),n,nullptr,nullptr)?s:std::string{};}
+bool location(const std::string&url,Location&out){auto w=wide(url);URL_COMPONENTS p{};p.dwStructSize=sizeof(p);p.dwHostNameLength=p.dwUrlPathLength=p.dwExtraInfoLength=DWORD(-1);if(w.empty()||!WinHttpCrackUrl(w.c_str(),DWORD(w.size()),0,&p)||p.nScheme!=INTERNET_SCHEME_HTTPS||p.dwExtraInfoLength)return false;out.host.assign(p.lpszHostName,p.dwHostNameLength);out.path.assign(p.lpszUrlPath,p.dwUrlPathLength);out.port=p.nPort;return !out.host.empty();}
+bool sameOrigin(const std::string&base,const std::string&candidate){Location a,b;return location(base,a)&&location(candidate,b)&&_wcsicmp(a.host.c_str(),b.host.c_str())==0&&a.port==b.port;}
+std::string fetch(const std::string&base,const std::string&channel,std::string&error){Location l;if(!location(base,l)){error="The update service address is invalid.";return{};}if(l.path.empty())l.path=L"/";if(l.path.back()!=L'/')l.path.push_back(L'/');auto slug=updateChannelSlug(channel);l.path+=L"v1/updates/";l.path.append(slug.begin(),slug.end());l.path+=L"/windows-x64";Handle session(WinHttpOpen(L"RearSilver-Avatar-Suite-Update/1.0",WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0),WinHttpCloseHandle);if(!session){error="Windows could not initialise the update connection.";return{};}WinHttpSetTimeouts(session.get(),5000,5000,10000,15000);Handle connection(WinHttpConnect(session.get(),l.host.c_str(),l.port,0),WinHttpCloseHandle);Handle request(connection?WinHttpOpenRequest(connection.get(),L"GET",l.path.c_str(),nullptr,WINHTTP_NO_REFERER,WINHTTP_DEFAULT_ACCEPT_TYPES,WINHTTP_FLAG_SECURE):nullptr,WinHttpCloseHandle);if(!connection||!request||!WinHttpSendRequest(request.get(),WINHTTP_NO_ADDITIONAL_HEADERS,0,WINHTTP_NO_REQUEST_DATA,0,0,0)||!WinHttpReceiveResponse(request.get(),nullptr)){error="The update service did not respond.";return{};}DWORD status=0,n=sizeof(status);WinHttpQueryHeaders(request.get(),WINHTTP_QUERY_STATUS_CODE|WINHTTP_QUERY_FLAG_NUMBER,WINHTTP_HEADER_NAME_BY_INDEX,&status,&n,WINHTTP_NO_HEADER_INDEX);if(status==503){error="No release has been published to this update channel yet.";return{};}if(status<200||status>=300){error="The update service returned an error.";return{};}std::string body;for(;;){DWORD available=0;if(!WinHttpQueryDataAvailable(request.get(),&available)){error="The update response could not be read.";return{};}if(!available)break;if(body.size()+available>kMaximumManifestBytes){error="The update response was unexpectedly large.";return{};}size_t offset=body.size();body.resize(offset+available);DWORD read=0;if(!WinHttpReadData(request.get(),body.data()+offset,available,&read)){error="The update response could not be read.";return{};}body.resize(offset+read);}if(body.empty())error="The update service returned an empty response.";return body;}
+bool safeFilename(const std::string&name,const std::string&channel){if(name.empty()||name.size()>180||name.find("..")!=std::string::npos||name.find('/')!=std::string::npos||name.find('\\')!=std::string::npos)return false;std::string prefix=channel=="owner-build"?"RearSilver-Avatar-Suite-Owner-":"RearSilver-Avatar-Suite-Private-Beta-";return name.rfind(prefix,0)==0&&name.size()>10&&name.substr(name.size()-10)=="-Setup.exe";}
+bool hash(const std::string&s){return s.size()==64&&std::all_of(s.begin(),s.end(),[](unsigned char c){return std::isdigit(c)||(c>='a'&&c<='f');});}
+bool isoTime(const std::string&s){return s.size()>=20&&s[4]=='-'&&s[7]=='-'&&s[10]=='T'&&s.back()=='Z';}
 }
 
-bool crackHttpsUrl(const std::string &url, std::wstring &host, INTERNET_PORT &port,
-                   std::wstring &path)
-{
-    if (url.empty()) return false;
-    const int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url.data(),
-                                          static_cast<int>(url.size()), nullptr, 0);
-    if (count <= 0) return false;
-    std::wstring wide(count, L'\0');
-    if (!MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, url.data(),
-                             static_cast<int>(url.size()), wide.data(), count)) return false;
-    URL_COMPONENTS parts{};
-    parts.dwStructSize = sizeof(parts);
-    parts.dwHostNameLength = DWORD(-1);
-    parts.dwUrlPathLength = DWORD(-1);
-    parts.dwExtraInfoLength = DWORD(-1);
-    if (!WinHttpCrackUrl(wide.c_str(), static_cast<DWORD>(wide.size()), 0, &parts) ||
-        parts.nScheme != INTERNET_SCHEME_HTTPS || parts.dwExtraInfoLength) return false;
-    host.assign(parts.lpszHostName, parts.dwHostNameLength);
-    path.assign(parts.lpszUrlPath, parts.dwUrlPathLength);
-    port = parts.nPort;
-    while (path.size() > 1 && path.back() == L'/') path.pop_back();
-    return !host.empty();
-}
+UpdateCheckResult parseAvatarUpdateManifest(const std::string&body,const std::string&base,const std::string&channel,const std::string&current,bool manual){
+ UpdateCheckResult r;r.manual=manual;
+ try{winrt::init_apartment(winrt::apartment_type::multi_threaded);auto root=winrt::Windows::Data::Json::JsonObject::Parse(wide(body));using T=winrt::Windows::Data::Json::JsonValueType;auto req=[&](const wchar_t*k,T t){return root.HasKey(k)&&root.GetNamedValue(k).ValueType()==t;};
+  if(!req(L"schema",T::Number)||!req(L"minimum_updater_schema",T::Number)||!req(L"product",T::String)||!req(L"channel",T::String)||!req(L"platform",T::String)||!req(L"version",T::String)||!req(L"minimum_supported_version",T::String)||!req(L"mandatory",T::Boolean)||!req(L"published_at",T::String)||!req(L"installer",T::Object)||!req(L"release_notes",T::Array)||!req(L"release_notes_url",T::String))throw winrt::hresult_invalid_argument();
+  double schema=root.GetNamedNumber(L"schema"),minSchema=root.GetNamedNumber(L"minimum_updater_schema");auto product=narrow(root.GetNamedString(L"product")),manifestChannel=narrow(root.GetNamedString(L"channel")),platform=narrow(root.GetNamedString(L"platform"));r.availableVersion=narrow(root.GetNamedString(L"version"));auto minimum=narrow(root.GetNamedString(L"minimum_supported_version"));r.mandatory=root.GetNamedBoolean(L"mandatory");r.publishedAt=narrow(root.GetNamedString(L"published_at"));r.releaseNotesUrl=narrow(root.GetNamedString(L"release_notes_url"));
+  auto i=root.GetNamedObject(L"installer");auto ireq=[&](const wchar_t*k,T t){return i.HasKey(k)&&i.GetNamedValue(k).ValueType()==t;};if(!ireq(L"filename",T::String)||!ireq(L"size",T::Number)||!ireq(L"sha256",T::String)||!ireq(L"download_request_url",T::String))throw winrt::hresult_invalid_argument();r.installerFilename=narrow(i.GetNamedString(L"filename"));double size=i.GetNamedNumber(L"size");if(!std::isfinite(size)||size<1||size>double(8ull*1024*1024*1024)||std::floor(size)!=size)throw winrt::hresult_invalid_argument();r.installerSize=std::uint64_t(size);r.installerSha256=narrow(i.GetNamedString(L"sha256"));r.downloadRequestUrl=narrow(i.GetNamedString(L"download_request_url"));
+  auto notes=root.GetNamedArray(L"release_notes");for(uint32_t n=0;n<std::min<uint32_t>(notes.Size(),6);++n)if(notes.GetAt(n).ValueType()==T::String){auto note=narrow(notes.GetStringAt(n));if(!note.empty()&&note.size()<=180)r.releaseNotes.push_back(note);}
+  auto slug=updateChannelSlug(channel);int comparison=0,minComparison=0;if(schema!=1||minSchema>1||product!="rearsilver-avatar-suite"||manifestChannel!=slug||platform!="windows-x64"||!isoTime(r.publishedAt)||!compareUpdateVersions(r.availableVersion,current,comparison)||!compareUpdateVersions(current,minimum,minComparison)||(!r.releaseNotesUrl.empty()&&!sameOrigin(base,r.releaseNotesUrl))){r.status=UpdateCheckStatus::Error;r.message="The update manifest did not match this Avatar Suite build.";return r;}r.currentVersionSupported=minComparison>=0;if(comparison<=0){r.status=UpdateCheckStatus::UpToDate;r.message="RearSilver Avatar Suite is up to date.";return r;}r.status=UpdateCheckStatus::Available;r.message="RearSilver Avatar Suite "+r.availableVersion+" is available.";r.downloadAvailable=safeFilename(r.installerFilename,slug)&&hash(r.installerSha256)&&sameOrigin(base,r.downloadRequestUrl);return r;
+ }catch(...){r.status=UpdateCheckStatus::Error;r.message="The update service returned an invalid manifest.";return r;}
 }
 
-UpdateFetchResult fetchUpdateManifest(const std::string &baseUrl,
-                                      const std::string &channel,
-                                      bool manual)
-{
-    UpdateFetchResult result;
-    result.manual = manual;
-    std::wstring host, path;
-    INTERNET_PORT port = INTERNET_DEFAULT_HTTPS_PORT;
-    if (!crackHttpsUrl(baseUrl, host, port, path)) {
-        result.error = "The update service address is invalid.";
-        return result;
-    }
-    if (path.empty()) path = L"/";
-    if (path.back() != L'/') path.push_back(L'/');
-    const std::string slug = channelSlug(channel);
-    path += L"v1/updates/";
-    path.append(slug.begin(), slug.end());
-    path += L"/windows-x64";
-
-    WinHttpHandle session(WinHttpOpen(L"RearSilver-Avatar-Suite-Update/1.0",
-        WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-        WINHTTP_NO_PROXY_BYPASS, 0), WinHttpCloseHandle);
-    if (!session) { result.error = "Windows could not initialise the update connection."; return result; }
-    WinHttpSetTimeouts(session.get(), 5000, 5000, 10000, 15000);
-    WinHttpHandle connection(WinHttpConnect(session.get(), host.c_str(), port, 0), WinHttpCloseHandle);
-    if (!connection) { result.error = "The update service could not be reached."; return result; }
-    WinHttpHandle request(WinHttpOpenRequest(connection.get(), L"GET", path.c_str(), nullptr,
-        WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE), WinHttpCloseHandle);
-    if (!request || !WinHttpSendRequest(request.get(), WINHTTP_NO_ADDITIONAL_HEADERS, 0,
-        WINHTTP_NO_REQUEST_DATA, 0, 0, 0) || !WinHttpReceiveResponse(request.get(), nullptr)) {
-        result.error = "The update service did not respond.";
-        return result;
-    }
-    DWORD status = 0, bytes = sizeof(status);
-    WinHttpQueryHeaders(request.get(), WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                        WINHTTP_HEADER_NAME_BY_INDEX, &status, &bytes, WINHTTP_NO_HEADER_INDEX);
-    if (status == 503) {
-        result.error = "No release has been published to this update channel yet.";
-        return result;
-    }
-    if (status < 200 || status >= 300) {
-        result.error = "The update service returned an error.";
-        return result;
-    }
-    for (;;) {
-        DWORD available = 0;
-        if (!WinHttpQueryDataAvailable(request.get(), &available)) {
-            result.error = "The update response could not be read.";
-            return result;
-        }
-        if (!available) break;
-        if (result.body.size() + available > kMaximumManifestBytes) {
-            result.error = "The update response was unexpectedly large.";
-            result.body.clear();
-            return result;
-        }
-        const size_t offset = result.body.size();
-        result.body.resize(offset + available);
-        DWORD read = 0;
-        if (!WinHttpReadData(request.get(), result.body.data() + offset, available, &read)) {
-            result.error = "The update response could not be read.";
-            result.body.clear();
-            return result;
-        }
-        result.body.resize(offset + read);
-    }
-    if (result.body.empty()) {
-        result.error = "The update service returned an empty response.";
-        return result;
-    }
-    result.succeeded = true;
-    return result;
+UpdateCheckResult checkForAvatarUpdate(const std::string&base,const std::string&channel,const std::string&current,bool manual){
+ UpdateCheckResult r;r.manual=manual;if(base.empty()){r.message="Update checks are not configured for this build.";return r;}std::string error,body=fetch(base,channel,error);if(body.empty()){r.status=UpdateCheckStatus::Error;r.message=error;return r;}return parseAvatarUpdateManifest(body,base,channel,current,manual);
 }

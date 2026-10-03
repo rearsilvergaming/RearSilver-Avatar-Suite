@@ -4,6 +4,7 @@ Unicode True
 !include "WordFunc.nsh"
 !include "x64.nsh"
 !include "WinVer.nsh"
+!include "FileFunc.nsh"
 
 !ifndef RS_ARTIFACT_ROOT
   !error "RS_ARTIFACT_ROOT must point to a clean Avatar Suite artifact directory."
@@ -34,6 +35,8 @@ Unicode True
 !define PRODUCT_PUBLISHER "RearSilver Gaming"
 !define PRODUCT_WEB_SITE "https://github.com/rearsilvergaming/RearSilver-Avatar-Suite"
 !define PRODUCT_REG_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\RearSilver Avatar Suite"
+Var UpdateHandoff
+Var PreviousVersion
 
 Name "${PRODUCT_NAME} | ${RS_CHANNEL}"
 OutFile "${RS_OUTPUT_FILE}"
@@ -79,6 +82,12 @@ ManifestDPIAware true
 !insertmacro MUI_LANGUAGE "English"
 
 Function .onInit
+  StrCpy $UpdateHandoff "0"
+  ${GetParameters} $0
+  ClearErrors
+  ${GetOptions} $0 "/UPDATEHANDOFF" $1
+  IfErrors +2 0
+    StrCpy $UpdateHandoff "1"
   ${IfNot} ${RunningX64}
     MessageBox MB_ICONSTOP|MB_OK "RearSilver Avatar Suite requires 64-bit Windows."
     Abort
@@ -90,12 +99,15 @@ Function .onInit
 FunctionEnd
 
 Function EnsureAvatarSuiteClosed
+  StrCmp $UpdateHandoff "1" closed_for_handoff
   check_avatar_suite:
   FindWindow $0 "RearSilverAvatarWindow" ""
   ${If} $0 != 0
     MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "RearSilver Avatar Suite is running. Close it before continuing, then choose Retry." IDRETRY check_avatar_suite IDCANCEL cancel_avatar_suite
   ${EndIf}
   Return
+  closed_for_handoff:
+    Return
   cancel_avatar_suite:
     Abort
 FunctionEnd
@@ -193,6 +205,7 @@ Section "RearSilver Avatar Suite" MainSection
   SetShellVarContext all
   SetRegView 64
   Call EnsureAvatarSuiteClosed
+  ReadRegStr $PreviousVersion HKLM "${PRODUCT_REG_KEY}" "DisplayVersion"
   Call InstallPrerequisites
 
   DetailPrint "Installing RearSilver Avatar Suite files..."
@@ -201,6 +214,7 @@ Section "RearSilver Avatar Suite" MainSection
   ; installation root or any unrelated files a user may keep there.
   RMDir /r "$INSTDIR\built-in-layers"
   Delete "$INSTDIR\RearSilver Avatar Suite.exe"
+  Delete "$INSTDIR\RearSilver-Avatar-Suite-Updater.exe"
   Delete "$INSTDIR\WebView2Loader.dll"
   Delete "$INSTDIR\avatar-settings.html"
   Delete "$INSTDIR\spout2-license.txt"
@@ -228,6 +242,14 @@ Section "RearSilver Avatar Suite" MainSection
 
   WriteRegStr HKLM "${PRODUCT_REG_KEY}" "DisplayName" "${PRODUCT_NAME} (${RS_CHANNEL})"
   WriteRegStr HKLM "${PRODUCT_REG_KEY}" "DisplayVersion" "${RS_VERSION}"
+  ${If} $PreviousVersion != ""
+  ${AndIf} $PreviousVersion != "${RS_VERSION}"
+    WriteRegStr HKLM "${PRODUCT_REG_KEY}" "PreviousVersion" "$PreviousVersion"
+    WriteRegStr HKLM "${PRODUCT_REG_KEY}" "UpdateCompletedVersion" "${RS_VERSION}"
+  ${Else}
+    DeleteRegValue HKLM "${PRODUCT_REG_KEY}" "PreviousVersion"
+    DeleteRegValue HKLM "${PRODUCT_REG_KEY}" "UpdateCompletedVersion"
+  ${EndIf}
   WriteRegStr HKLM "${PRODUCT_REG_KEY}" "Publisher" "${PRODUCT_PUBLISHER}"
   WriteRegStr HKLM "${PRODUCT_REG_KEY}" "URLInfoAbout" "${PRODUCT_WEB_SITE}"
   WriteRegStr HKLM "${PRODUCT_REG_KEY}" "DisplayIcon" "$INSTDIR\RearSilver Avatar Suite.exe"
@@ -247,6 +269,7 @@ Section "Uninstall"
   RMDir "$SMPROGRAMS\RearSilver Avatar Suite"
   RMDir /r "$INSTDIR\built-in-layers"
   Delete "$INSTDIR\RearSilver Avatar Suite.exe"
+  Delete "$INSTDIR\RearSilver-Avatar-Suite-Updater.exe"
   Delete "$INSTDIR\WebView2Loader.dll"
   Delete "$INSTDIR\avatar-settings.html"
   Delete "$INSTDIR\spout2-license.txt"

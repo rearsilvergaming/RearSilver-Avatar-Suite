@@ -18,6 +18,10 @@
 #include "resource.h"
 #include "websocket_server.h"
 #include "rs_build_config.hpp"
+#include "update_service.hpp"
+#include "update_download.hpp"
+#include "update_version.hpp"
+#include <wincred.h>
 
 #include <algorithm>
 #include <atomic>
@@ -42,6 +46,7 @@ namespace {
 
 constexpr wchar_t kWindowClass[] = L"RearSilverAvatarWindow";
 constexpr wchar_t kWindowTitle[] = L"RearSilver Avatar Suite";
+constexpr wchar_t kUpdateNoticeClass[] = L"RearSilverAvatarUpdateNotice";
 constexpr wchar_t kSingleInstanceMutex[] = L"Local\\RearSilverAvatarSuite.SingleInstance";
 constexpr UINT kRenderFailureMessage = WM_APP + 1;
 constexpr UINT kImageUploadFailureMessage = WM_APP + 2;
@@ -49,11 +54,15 @@ constexpr UINT kImageUploadSuccessMessage = WM_APP + 3;
 constexpr UINT kBlinkStateMessage = WM_APP + 4;
 constexpr UINT kSpoutStatusChangedMessage = WM_APP + 5;
 constexpr UINT kWebSocketCommandMessage = WM_APP + 6;
+constexpr UINT kUpdateCheckCompleteMessage = WM_APP + 7;
+constexpr UINT kUpdateDownloadProgressMessage = WM_APP + 8;
+constexpr UINT_PTR kAutomaticUpdateTimer = 9001;
 constexpr UINT kOutputWidth = 1920;
 constexpr UINT kOutputHeight = 1080;
 constexpr UINT kOutputUiDpi = 192;
 
 HWND g_mainWindow = nullptr;
+HWND g_updateNoticeWindow = nullptr;
 std::unique_ptr<WebSocketServer> g_webSocketServer;
 std::mutex g_webSocketStateMutex;
 std::wstring g_webSocketLastAction;
@@ -82,6 +91,13 @@ LONG_PTR g_windowedStyle = WS_OVERLAPPEDWINDOW;
 
 std::mutex g_logMutex;
 HANDLE g_logFile = INVALID_HANDLE_VALUE;
+std::atomic<bool> g_updateCheckRunning{false};
+std::atomic<bool> g_updateDownloadRunning{false};
+std::atomic<bool> g_updateDownloadCancel{false};
+UpdateCheckResult g_updateResult;
+UpdateDownloadProgress g_updateProgress;
+bool g_updateHasResult=false;
+std::string g_notifiedUpdateVersion;
 
 struct WebSocketCommandRequest {
     std::string payload;
@@ -3462,9 +3478,175 @@ std::string automationCatalogueResponse()
     return json;
 }
 
+std::string updateStateJson()
+{
+    const char *status = g_updateCheckRunning.load() ? "checking" : !g_updateHasResult ? "disabled" :
+        g_updateResult.status == UpdateCheckStatus::Available ? "available" :
+        g_updateResult.status == UpdateCheckStatus::UpToDate ? "up-to-date" : "error";
+    const char *tag = g_updateCheckRunning.load() ? "CHECKING" :
+        g_updateResult.status == UpdateCheckStatus::Available ?
+            (g_updateResult.mandatory || !g_updateResult.currentVersionSupported ? "REQUIRED" : "AVAILABLE") :
+        g_updateResult.status == UpdateCheckStatus::UpToDate ? "UP TO DATE" : "UNAVAILABLE";
+    const char *downloadStatus = g_updateDownloadRunning.load() ?
+        (g_updateProgress.status == UpdateDownloadStatus::Verifying ? "verifying" : "downloading") :
+        g_updateProgress.status == UpdateDownloadStatus::Verified ? "verified" :
+        g_updateProgress.status == UpdateDownloadStatus::Cancelled ? "cancelled" :
+        g_updateProgress.status == UpdateDownloadStatus::Error ? "error" : "idle";
+    std::string json="{\"status\":"+jsonQuoted(status)+",\"tag\":"+jsonQuoted(tag)+
+        ",\"message\":"+jsonQuoted(g_updateCheckRunning.load()?"Contacting the Avatar Suite update service…":g_updateResult.message)+
+        ",\"availableVersion\":"+jsonQuoted(g_updateResult.availableVersion)+
+        ",\"publishedAt\":"+jsonQuoted(g_updateResult.publishedAt)+
+        ",\"required\":"+std::string(g_updateResult.mandatory||!g_updateResult.currentVersionSupported?"true":"false")+
+        ",\"downloadAvailable\":"+std::string(g_updateResult.downloadAvailable?"true":"false")+
+        ",\"downloadStatus\":"+jsonQuoted(downloadStatus)+",\"downloadMessage\":"+jsonQuoted(g_updateProgress.message)+
+        ",\"downloadTransferred\":"+std::to_string(g_updateProgress.bytesTransferred)+
+        ",\"downloadTotal\":"+std::to_string(g_updateProgress.bytesTotal)+",\"releaseNotes\":[";
+    for(size_t i=0;i<g_updateResult.releaseNotes.size();++i){if(i)json+=',';json+=jsonQuoted(g_updateResult.releaseNotes[i]);}
+    return json+"]}";
+}
+
+void sendUpdateState(){postAvatarSettingsMessage(L"update-state\t"+fromUtf8(updateStateJson()));}
+
+void startAvatarUpdateCheck(bool manual)
+{
+    if(!RsBuild::kUpdateCheckEnabled||!RsBuild::kUpdateBaseUrl[0])return;
+    if(g_updateCheckRunning.exchange(true))return;
+    sendUpdateState();
+    std::thread([manual]{auto *result=new UpdateCheckResult(checkForAvatarUpdate(RsBuild::kUpdateBaseUrl,RsBuild::kChannel,RsBuild::kVersion,manual));
+        if(!g_mainWindow||!PostMessageW(g_mainWindow,kUpdateCheckCompleteMessage,0,reinterpret_cast<LPARAM>(result))){delete result;g_updateCheckRunning.store(false);}}).detach();
+}
+
+std::string updateDownloadToken()
+{
+    if(updateChannelSlug(RsBuild::kChannel)=="private-beta")return RsBuild::kUpdateDownloadToken;
+    if(updateChannelSlug(RsBuild::kChannel)!="owner-build")return{};
+    wchar_t value[512]{};DWORD length=GetEnvironmentVariableW(L"REARSILVER_AVATAR_OWNER_UPDATE_TOKEN",value,DWORD(std::size(value)));
+    if(length&&length<std::size(value)){std::string token=toUtf8(std::wstring(value,length));SecureZeroMemory(value,sizeof(value));return token;}
+    PCREDENTIALW credential=nullptr;if(!CredReadW(L"RearSilverAvatarSuite/OwnerUpdateToken",CRED_TYPE_GENERIC,0,&credential)||!credential)return{};
+    std::string token;
+    if(credential->CredentialBlob&&credential->CredentialBlobSize){
+        if(credential->CredentialBlobSize%sizeof(wchar_t)==0){
+            auto *characters=reinterpret_cast<wchar_t*>(credential->CredentialBlob);
+            size_t count=credential->CredentialBlobSize/sizeof(wchar_t);
+            while(count&&characters[count-1]==L'\0')--count;
+            token=toUtf8(std::wstring(characters,count));
+        }else{
+            auto *bytes=reinterpret_cast<char*>(credential->CredentialBlob);
+            token.assign(bytes,bytes+credential->CredentialBlobSize);
+        }
+        SecureZeroMemory(credential->CredentialBlob,credential->CredentialBlobSize);
+    }
+    CredFree(credential);return token;
+}
+
+void startAvatarUpdateDownload()
+{
+    if(g_updateDownloadRunning.exchange(true))return;std::string token=updateDownloadToken();
+    if(!g_updateResult.downloadAvailable||token.empty()){g_updateDownloadRunning.store(false);g_updateProgress={UpdateDownloadStatus::Error,0,0,{},token.empty()?"Update download credentials are unavailable.":"The manifest has no verified download."};if(!token.empty())SecureZeroMemory(token.data(),token.size());sendUpdateState();return;}
+    g_updateDownloadCancel.store(false);g_updateProgress={UpdateDownloadStatus::Downloading,0,g_updateResult.installerSize,{},"Starting update download…"};sendUpdateState();UpdateCheckResult update=g_updateResult;
+    std::thread([update,token=std::move(token)]() mutable {downloadAndVerifyAvatarUpdate(update,token,g_updateDownloadCancel,[](const UpdateDownloadProgress&p){auto *copy=new UpdateDownloadProgress(p);if(!g_mainWindow||!PostMessageW(g_mainWindow,kUpdateDownloadProgressMessage,0,reinterpret_cast<LPARAM>(copy)))delete copy;});if(!token.empty())SecureZeroMemory(token.data(),token.size());}).detach();
+}
+
+LRESULT CALLBACK updateNoticeProcedure(HWND window,UINT message,WPARAM wParam,LPARAM lParam)
+{
+    if(message==WM_COMMAND){if(LOWORD(wParam)==1){showAvatarSettingsWindow(g_mainWindow,L"updates");DestroyWindow(window);return 0;}if(LOWORD(wParam)==2){DestroyWindow(window);return 0;}}
+    if(message==WM_DESTROY){if(g_updateNoticeWindow==window)g_updateNoticeWindow=nullptr;return 0;}
+    return DefWindowProcW(window,message,wParam,lParam);
+}
+void showUpdateNotification()
+{
+    if(g_updateNoticeWindow||g_updateResult.status!=UpdateCheckStatus::Available||g_notifiedUpdateVersion==g_updateResult.availableVersion)return;
+    g_notifiedUpdateVersion=g_updateResult.availableVersion;
+    RECT work{};SystemParametersInfoW(SPI_GETWORKAREA,0,&work,0);g_updateNoticeWindow=CreateWindowExW(WS_EX_TOOLWINDOW|WS_EX_TOPMOST|WS_EX_NOACTIVATE,kUpdateNoticeClass,L"Avatar Suite update available",WS_POPUP|WS_BORDER,work.right-390,work.bottom-150,370,125,g_mainWindow,nullptr,GetModuleHandleW(nullptr),nullptr);if(!g_updateNoticeWindow)return;
+    std::wstring text=L"Avatar Suite "+fromUtf8(g_updateResult.availableVersion)+L" is available.";CreateWindowExW(0,L"STATIC",text.c_str(),WS_CHILD|WS_VISIBLE,18,16,330,28,g_updateNoticeWindow,nullptr,GetModuleHandleW(nullptr),nullptr);CreateWindowExW(0,L"BUTTON",L"View update",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,120,65,110,32,g_updateNoticeWindow,(HMENU)1,GetModuleHandleW(nullptr),nullptr);CreateWindowExW(0,L"BUTTON",L"Later",WS_CHILD|WS_VISIBLE|BS_PUSHBUTTON,240,65,90,32,g_updateNoticeWindow,(HMENU)2,GetModuleHandleW(nullptr),nullptr);ShowWindow(g_updateNoticeWindow,SW_SHOWNOACTIVATE);SetWindowPos(g_updateNoticeWindow,HWND_TOPMOST,0,0,0,0,SWP_NOMOVE|SWP_NOSIZE|SWP_NOACTIVATE);
+}
+
+void cleanupStaleUpdateHelpers()
+{
+    wchar_t local[32768]{};
+    const DWORD length=GetEnvironmentVariableW(L"LOCALAPPDATA",local,DWORD(std::size(local)));
+    if(!length||length>=std::size(local))return;
+    const auto runner=std::filesystem::path(std::wstring(local,length))/L"RearSilver Avatar"/L"Updates"/L"Runner";
+    std::error_code ec;
+    if(!std::filesystem::is_directory(runner,ec))return;
+    for(const auto& entry:std::filesystem::directory_iterator(runner,ec)){
+        if(ec)break;
+        const auto name=entry.path().filename().wstring();
+        if(entry.is_regular_file(ec)&&name.rfind(L"RearSilver-Avatar-Suite-Updater-",0)==0&&entry.path().extension()==L".exe")
+            std::filesystem::remove(entry.path(),ec);
+        ec.clear();
+    }
+}
+
+void offerPostUpgradeReview()
+{
+    HKEY key=nullptr;
+    constexpr wchar_t registryPath[]=L"Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\RearSilver Avatar Suite";
+    if(RegOpenKeyExW(HKEY_LOCAL_MACHINE,registryPath,0,KEY_READ|KEY_WOW64_64KEY,&key)!=ERROR_SUCCESS)return;
+    auto readValue=[&](const wchar_t*name){wchar_t value[256]{};DWORD type=0,bytes=sizeof(value);if(RegQueryValueExW(key,name,nullptr,&type,reinterpret_cast<BYTE*>(value),&bytes)!=ERROR_SUCCESS||type!=REG_SZ)return std::wstring{};return std::wstring(value);};
+    const std::wstring previous=readValue(L"PreviousVersion");
+    const std::wstring completed=readValue(L"UpdateCompletedVersion");
+    RegCloseKey(key);
+    const std::wstring current=fromUtf8(RsBuild::kVersion);
+    if(previous.empty()||completed!=current||previous==current||loadSetting(L"LastReviewedUpdateVersion")==current)return;
+    const int choice=MessageBoxW(g_mainWindow,(L"RearSilver Avatar Suite was updated from "+previous+L" to "+current+L".\r\n\r\nWould you like to review the guided setup now? Your saved presets and settings will be kept.").c_str(),L"Review Avatar Suite setup",MB_YESNO|MB_ICONINFORMATION);
+    saveSetting(L"LastReviewedUpdateVersion",current);
+    if(choice==IDYES)showAvatarPostUpgradeReview(g_mainWindow);
+}
+
+std::wstring quoteArgument(const std::wstring&s){return L"\""+s+L"\"";}
+std::vector<wchar_t> helperEnvironment()
+{
+    std::vector<wchar_t> block;LPWCH environment=GetEnvironmentStringsW();if(!environment)return block;
+    for(const wchar_t *entry=environment;*entry;entry+=wcslen(entry)+1){
+        constexpr wchar_t secretName[]=L"REARSILVER_AVATAR_OWNER_UPDATE_TOKEN=";
+        if(_wcsnicmp(entry,secretName,wcslen(secretName))==0)continue;
+        size_t n=wcslen(entry)+1;block.insert(block.end(),entry,entry+n);
+    }
+    FreeEnvironmentStringsW(environment);block.push_back(L'\0');return block;
+}
+
+bool startAvatarUpdaterHandoff(HWND owner)
+{
+    if(g_updateProgress.status!=UpdateDownloadStatus::Verified||g_updateProgress.verifiedPath.empty())return false;
+    if(preset_store::hasUnsavedChanges()){
+        int choice=MessageBoxW(owner,L"This preset has unsaved changes.\r\n\r\nYes: save changes and install\r\nNo: keep the draft and install\r\nCancel: return without installing",L"Install Avatar Suite update",MB_YESNOCANCEL|MB_ICONQUESTION);
+        if(choice==IDCANCEL)return false;if(choice==IDYES&&!preset_store::updateActivePreset()){MessageBoxW(owner,L"The preset could not be saved. The update was not started.",L"Avatar Suite update",MB_OK|MB_ICONERROR);return false;}
+    }
+    if(MessageBoxW(owner,L"Avatar Suite will close, install the verified update, and relaunch. Continue?",L"Install Avatar Suite update",MB_YESNO|MB_ICONQUESTION)!=IDYES)return false;
+    std::filesystem::path source=std::filesystem::path(executableDirectory())/L"RearSilver-Avatar-Suite-Updater.exe";
+    if(!std::filesystem::is_regular_file(source)){MessageBoxW(owner,L"The update helper is missing.",L"Avatar Suite update",MB_OK|MB_ICONERROR);return false;}
+    wchar_t local[32768]{};DWORD length=GetEnvironmentVariableW(L"LOCALAPPDATA",local,DWORD(std::size(local)));if(!length||length>=std::size(local))return false;
+    auto runner=std::filesystem::path(std::wstring(local,length))/L"RearSilver Avatar"/L"Updates"/L"Runner";std::error_code ec;std::filesystem::create_directories(runner,ec);if(ec)return false;
+    std::filesystem::path helper;for(unsigned attempt=0;attempt<8;++attempt){helper=runner/(L"RearSilver-Avatar-Suite-Updater-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64())+L"-"+std::to_wstring(attempt)+L".exe");if(CopyFileW(source.c_str(),helper.c_str(),TRUE))break;if(attempt==7)return false;}
+    std::wstring eventName=L"Local\\RearSilverAvatarUpdateReady-"+std::to_wstring(GetCurrentProcessId())+L"-"+std::to_wstring(GetTickCount64());HANDLE ready=CreateEventW(nullptr,TRUE,FALSE,eventName.c_str());if(!ready){std::filesystem::remove(helper,ec);return false;}
+    std::wstring command=quoteArgument(helper.wstring())+L" --avatar-pid "+std::to_wstring(GetCurrentProcessId())+L" --ready-event "+quoteArgument(eventName)+L" --installer "+quoteArgument(g_updateProgress.verifiedPath)+L" --version "+quoteArgument(fromUtf8(g_updateResult.availableVersion))+L" --size "+std::to_wstring(g_updateResult.installerSize)+L" --sha256 "+quoteArgument(fromUtf8(g_updateResult.installerSha256));
+    auto environment=helperEnvironment();STARTUPINFOW startup{};startup.cb=sizeof(startup);PROCESS_INFORMATION process{};BOOL created=CreateProcessW(helper.c_str(),command.data(),nullptr,nullptr,FALSE,CREATE_BREAKAWAY_FROM_JOB|CREATE_UNICODE_ENVIRONMENT,environment.empty()?nullptr:environment.data(),runner.c_str(),&startup,&process);if(!environment.empty())SecureZeroMemory(environment.data(),environment.size()*sizeof(wchar_t));
+    if(!created){CloseHandle(ready);std::filesystem::remove(helper,ec);MessageBoxW(owner,L"The external update helper could not be started.",L"Avatar Suite update",MB_OK|MB_ICONERROR);return false;}CloseHandle(process.hThread);
+    DWORD acknowledged=WaitForSingleObject(ready,5000);CloseHandle(ready);if(acknowledged!=WAIT_OBJECT_0){TerminateProcess(process.hProcess,12);CloseHandle(process.hProcess);std::filesystem::remove(helper,ec);MessageBoxW(owner,L"The update helper did not acknowledge the handoff. Avatar Suite will remain open.",L"Avatar Suite update",MB_OK|MB_ICONERROR);return false;}CloseHandle(process.hProcess);PostMessageW(owner,WM_CLOSE,0,0);return true;
+}
+
 LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARAM lParam)
 {
     switch (message) {
+    case WM_TIMER:
+        if(wParam==kAutomaticUpdateTimer){KillTimer(window,kAutomaticUpdateTimer);startAvatarUpdateCheck(false);return 0;}
+        return DefWindowProcW(window,message,wParam,lParam);
+    case kUpdateCheckCompleteMessage: {
+        std::unique_ptr<UpdateCheckResult> result(reinterpret_cast<UpdateCheckResult*>(lParam));
+        if(result){g_updateResult=*result;g_updateHasResult=true;}g_updateCheckRunning.store(false);sendUpdateState();if(result&&result->status==UpdateCheckStatus::Available)showUpdateNotification();
+        if(result&&result->manual&&result->status==UpdateCheckStatus::Error)logMessage(L"Manual update check failed: "+fromUtf8(result->message));
+        else if(result&&result->status==UpdateCheckStatus::Error)logMessage(L"Automatic update check failed quietly: "+fromUtf8(result->message));
+        return 0;
+    }
+    case kUpdateDownloadProgressMessage: {
+        std::unique_ptr<UpdateDownloadProgress> progress(reinterpret_cast<UpdateDownloadProgress*>(lParam));
+        if(progress){g_updateProgress=*progress;if(progress->status!=UpdateDownloadStatus::Downloading&&progress->status!=UpdateDownloadStatus::Verifying)g_updateDownloadRunning.store(false);}sendUpdateState();return 0;
+    }
+    case kAvatarSettingsUpdateCheckMessage:startAvatarUpdateCheck(true);return 0;
+    case kAvatarSettingsUpdateDownloadMessage:startAvatarUpdateDownload();return 0;
+    case kAvatarSettingsUpdateCancelMessage:g_updateDownloadCancel.store(true);return 0;
+    case kAvatarSettingsUpdateInstallMessage:startAvatarUpdaterHandoff(window);return 0;
     case kWebSocketCommandMessage: {
         auto *request = reinterpret_cast<WebSocketCommandRequest *>(lParam);
         if (!request) return 0;
@@ -3778,6 +3960,7 @@ LRESULT CALLBACK windowProcedure(HWND window, UINT message, WPARAM wParam, LPARA
         postAvatarSettingsMessage(wParam != FALSE ? L"reaction-preview-on" : L"reaction-preview-off");
         return 0;
     case kAvatarSettingsReadyMessage:
+        sendUpdateState();
         sendPresetState();
         sendPrimaryImageState();
         sendReactionImageState();
@@ -4357,6 +4540,7 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
             CloseHandle(singleInstance);
         return 2;
     }
+    WNDCLASSEXW noticeClass{};noticeClass.cbSize=sizeof(noticeClass);noticeClass.hInstance=instance;noticeClass.lpfnWndProc=updateNoticeProcedure;noticeClass.lpszClassName=kUpdateNoticeClass;noticeClass.hCursor=LoadCursorW(nullptr,IDC_ARROW);noticeClass.hbrBackground=reinterpret_cast<HBRUSH>(COLOR_WINDOW+1);RegisterClassExW(&noticeClass);
 
     RECT initialBounds{0, 0, 960, 540};
     AdjustWindowRectExForDpi(&initialBounds, WS_OVERLAPPEDWINDOW, FALSE, 0,
@@ -4379,6 +4563,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
 
     ShowWindow(g_mainWindow, showCommand);
     UpdateWindow(g_mainWindow);
+    cleanupStaleUpdateHelpers();
+    if(RsBuild::kUpdateCheckEnabled&&RsBuild::kUpdateBaseUrl[0])SetTimer(g_mainWindow,kAutomaticUpdateTimer,5000,nullptr);
     if (g_buildExpired)
         MessageBoxW(g_mainWindow,
                     L"This Private Beta build has expired. Avatar output and automation are disabled.\n\n"
@@ -4698,6 +4884,8 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR, int showCommand)
         })) {
         logMessage(L"WebSocket server could not bind to 127.0.0.1:17891.");
     } else logMessage(L"WebSocket server listening on ws://127.0.0.1:17891.");
+
+    offerPostUpgradeReview();
 
     g_running.store(true);
     std::thread renderThread(renderThreadMain);

@@ -73,8 +73,13 @@ constexpr UINT kAvatarSettingsLayerCommandMessage = WM_APP + 80;
 constexpr UINT kAvatarSettingsPresetCommandMessage = WM_APP + 81;
 constexpr UINT kAvatarSettingsFlipMessage = WM_APP + 82;
 constexpr UINT kAvatarSettingsWebSocketStateMessage = WM_APP + 83;
+constexpr UINT kAvatarSettingsUpdateCheckMessage = WM_APP + 84;
+constexpr UINT kAvatarSettingsUpdateDownloadMessage = WM_APP + 85;
+constexpr UINT kAvatarSettingsUpdateCancelMessage = WM_APP + 86;
+constexpr UINT kAvatarSettingsUpdateInstallMessage = WM_APP + 87;
 
 bool showAvatarSettingsWindow(HWND owner, const std::wstring &page = L"");
+bool showAvatarPostUpgradeReview(HWND owner);
 bool isAvatarSettingsWindowVisible();
 HWND avatarSettingsWindowHandle();
 void postAvatarSettingsMessage(const std::wstring &message);
