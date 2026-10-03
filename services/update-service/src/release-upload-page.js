@@ -134,8 +134,8 @@ const staticExamples={
     minimum:'1.0.0-owner.5'
   },
   'private-beta':{
-    version:'1.0.0-beta.2',
-    minimum:'1.0.0-beta.2'
+    version:'1.0.0-beta.3',
+    minimum:'1.0.0-beta.3'
   }
 };
 
