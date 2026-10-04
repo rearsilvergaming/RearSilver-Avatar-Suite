@@ -13,7 +13,7 @@ Unicode True
   !error "RS_PREREQUISITE_ROOT must contain the verified Microsoft prerequisite installers."
 !endif
 !ifndef RS_VERSION
-  !define RS_VERSION "1.0.0-owner.8"
+  !define RS_VERSION "1.0.0-owner.9"
 !endif
 !ifndef RS_CHANNEL
   !define RS_CHANNEL "Owner Build"
@@ -213,6 +213,7 @@ Section "RearSilver Avatar Suite" MainSection
   ; chooser permits an existing destination, so never recursively delete the
   ; installation root or any unrelated files a user may keep there.
   RMDir /r "$INSTDIR\built-in-layers"
+  RMDir /r "$INSTDIR\integrations"
   Delete "$INSTDIR\RearSilver Avatar Suite.exe"
   Delete "$INSTDIR\RearSilver-Avatar-Suite-Updater.exe"
   Delete "$INSTDIR\WebView2Loader.dll"
@@ -268,6 +269,7 @@ Section "Uninstall"
   Delete "$SMPROGRAMS\RearSilver Avatar Suite\Uninstall RearSilver Avatar Suite.lnk"
   RMDir "$SMPROGRAMS\RearSilver Avatar Suite"
   RMDir /r "$INSTDIR\built-in-layers"
+  RMDir /r "$INSTDIR\integrations"
   Delete "$INSTDIR\RearSilver Avatar Suite.exe"
   Delete "$INSTDIR\RearSilver-Avatar-Suite-Updater.exe"
   Delete "$INSTDIR\WebView2Loader.dll"

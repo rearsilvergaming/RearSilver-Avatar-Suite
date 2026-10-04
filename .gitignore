@@ -42,3 +42,7 @@ Makefile
 # Local installer prerequisites and generated release artifacts
 /.deps/
 /artifacts/
+
+# Internal beta administration and Shopify working files
+/beta/
+/shopify/

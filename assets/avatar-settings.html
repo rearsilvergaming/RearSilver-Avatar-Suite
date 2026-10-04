@@ -67,6 +67,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
 .built-in-grid{display:grid;grid-template-columns:repeat(2,minmax(230px,1fr));gap:12px}.built-in-option{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:5px;padding:14px}.built-in-option strong{font-size:14px}.built-in-option span{color:var(--muted);font-size:12px;line-height:1.5}
 .effect-heading.composition-heading{display:block}.composition-actions{justify-content:flex-end;margin-top:14px;flex-wrap:nowrap}.composition-stack-list{margin-top:18px}
 .automation-step{overflow:hidden}.automation-step .control-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.automation-step .control-grid>div{min-width:0;max-width:100%}.automation-step select{min-width:0;max-width:100%;width:100%}
+.integration-tabs{display:flex;gap:8px;margin:0 0 18px;padding-bottom:2px;overflow-x:auto}.integration-tab{width:auto;flex:0 0 auto;padding:10px 16px;color:var(--muted);background:#151e29}.integration-tab.active{color:#fff;border-color:var(--cyan);background:#073f50;box-shadow:0 0 18px #00d4ff1f}.integration-panel[hidden]{display:none}.integration-panel>.cards{margin-top:0}.integration-wide{grid-column:1/-1}.integration-steps{margin:14px 0 0;padding-left:22px;color:var(--muted);line-height:1.7}.integration-code{width:100%;min-height:250px;resize:vertical;font-family:Consolas,monospace}.advanced-command{margin-top:14px;border:1px solid #344257;border-radius:10px;background:#111821}.advanced-command summary{padding:13px 14px;cursor:pointer;font-weight:800}.advanced-command-body{padding:0 14px 14px}
 .preset-list{display:grid;gap:12px}.preset-card{min-height:0;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:18px}.preset-card h3{margin:0}.preset-card-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end}.preset-card-actions button{padding:8px 11px}.preset-card-meta{display:flex;gap:7px;flex-wrap:wrap;margin-top:8px}
 .effect-heading{display:flex;align-items:center;justify-content:space-between;gap:12px}.effect-heading h3{margin:0}.effect-tools{display:flex;align-items:center;gap:7px;flex-wrap:wrap}.effect-tools button{padding:7px 10px}.effect-body[hidden]{display:none}.effect-body>p{margin-top:12px}
 .empty-effects{padding:28px;border:1px dashed var(--border);border-radius:12px;color:var(--muted);text-align:center;line-height:1.6}
@@ -95,7 +96,7 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     <button class="tab" data-page="microphone" title="Microphone"><svg class="nav-icon" viewBox="0 0 24 24"><rect x="8" y="3" width="8" height="12" rx="4"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3M8 21h8"/></svg><span>Microphone</span></button>
     <button class="tab" data-page="blink" title="Blink"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M2.5 12s3.5-5 9.5-5 9.5 5 9.5 5-3.5 5-9.5 5-9.5-5-9.5-5Z"/><circle cx="12" cy="12" r="2.5"/></svg><span>Blink</span></button>
     <button class="tab" data-page="effects" title="Effects"><svg class="nav-icon" viewBox="0 0 24 24"><path d="m12 2 1.5 5.2L18 9l-4.5 1.8L12 16l-1.5-5.2L6 9l4.5-1.8L12 2ZM19 15l.7 2.3L22 18l-2.3.7L19 21l-.7-2.3L16 18l2.3-.7L19 15Z"/></svg><span>Effects</span></button>
-    <button class="tab" data-page="websocket" title="WebSocket"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M7 7a7 7 0 0 0-2 9l3-3M17 17a7 7 0 0 0 2-9l-3 3M9 5l3 3-3 3M15 19l-3-3 3-3"/></svg><span>WebSocket</span></button>
+    <button class="tab" data-page="websocket" title="Streaming Bots"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M7 7a7 7 0 0 0-2 9l3-3M17 17a7 7 0 0 0 2-9l-3 3M9 5l3 3-3 3M15 19l-3-3 3-3"/></svg><span>Streaming Bots</span></button>
     <button class="tab" data-page="backgrounds" title="Backgrounds"><svg class="nav-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8" cy="9" r="1.5"/><path d="m5 18 5-5 3 3 2-2 4 4"/></svg><span>Backgrounds</span></button>
     <button class="tab" data-page="output" title="Output"><svg class="nav-icon" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8M12 17v4M8 10h8M14 7l3 3-3 3"/></svg><span>Output</span></button>
     <button class="tab" data-page="general" title="General"><svg class="nav-icon" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h2M10 12h10M4 18h7M15 18h5"/><circle cx="16" cy="6" r="2"/><circle cx="8" cy="12" r="2"/><circle cx="13" cy="18" r="2"/></svg><span>General</span></button>
@@ -239,7 +240,41 @@ input[type=range]{width:100%;margin:11px 0 0;accent-color:var(--cyan)}
     </div>
     <button class="primary add-effect" id="add-effect">+ Add effect</button>
   </section>
-  <section class="panel page" data-page="websocket" hidden><h2>WebSocket control</h2><p class="intro">Connect local automation tools to Avatar Suite without giving them control of the interface.</p><div class="cards"><article class="card"><div class="setting-row"><div><h3 style="margin-top:0">Local server</h3><div class="file-name">ws://127.0.0.1:17891/</div><p class="status" id="websocket-status">Checking server…</p></div><span class="tag" id="websocket-status-tag">CHECKING</span></div><div class="control-grid" style="margin-top:14px"><div><label>Connected clients</label><div class="file-name" id="websocket-client-count">0</div></div><div><label>Messages received</label><div class="file-name" id="websocket-message-count">0</div></div></div><p class="status" id="websocket-last-command">No command received yet.</p><p>Avatar Suite only listens on this computer. Connections from other devices are not accepted.</p></article><article class="card"><h3>Ordered action sequence</h3><p>Build one command from multiple layer, group, and configured-effect changes. Steps run from top to bottom.</p><div class="stack" id="websocket-sequence-steps"></div><div class="setting-actions" style="margin-top:14px"><button id="websocket-add-step">+ Add step</button><button id="websocket-clear-steps">Clear sequence</button></div><p class="status" id="websocket-sequence-status">No sequence steps configured.</p><label for="websocket-json" style="margin-top:16px">Generated JSON command</label><textarea id="websocket-json" readonly style="width:100%;min-height:150px;resize:vertical"></textarea><p class="status" id="websocket-summary">Add at least one action step.</p><div class="setting-actions" style="margin-top:14px"><button id="websocket-test">Test action</button><button class="primary" id="websocket-copy">Copy JSON</button></div><p class="status" id="websocket-result"></p></article><article class="card"><h3>Streamer.bot C# action</h3><p>Add an <strong>Execute C# Code</strong> sub-action in Streamer.bot and paste this generated code. The client number is its zero-based position under <strong>Servers/Clients → WebSocket Clients</strong>.</p><label for="streamerbot-client-index">WebSocket client number</label><input id="streamerbot-client-index" type="number" min="0" max="99" step="1" value="0"><label for="streamerbot-code" style="margin-top:14px">C# code</label><textarea id="streamerbot-code" readonly spellcheck="false" style="width:100%;min-height:220px;resize:vertical;font-family:Consolas,monospace"></textarea><div class="setting-actions" style="margin-top:14px"><button class="primary" id="streamerbot-copy">Copy Streamer.bot code</button></div><p class="status" id="streamerbot-result"></p></article><article class="card"><h3>Supported commands</h3><p><strong>client.hello</strong> verifies protocol compatibility. <strong>catalog.get</strong> supplies friendly names and stable IDs. <strong>preset.activate</strong> applies a saved preset, and <strong>sequence.run</strong> performs ordered layer, group, and configured-effect changes.</p><p class="status">Connected integrations can refresh their controls automatically when Avatar Suite reports a catalogue change.</p></article></div></section>
+  <section class="panel page" data-page="websocket" hidden>
+    <h2>Automation connections</h2>
+    <p class="intro">Connect your streaming bot to Avatar Suite and create actions that change your avatar during a stream.</p>
+    <article class="card" style="margin-bottom:18px">
+      <div class="setting-row" style="margin-top:0"><div><h3 style="margin-top:0">Local server</h3><div class="file-name">ws://127.0.0.1:17891/</div><p class="status" id="websocket-status">Checking server…</p></div><span class="tag" id="websocket-status-tag">CHECKING</span></div>
+      <div class="control-grid" style="margin-top:14px"><div><label>Connected clients</label><div class="file-name" id="websocket-client-count">0</div></div><div><label>Messages received</label><div class="file-name" id="websocket-message-count">0</div></div></div>
+      <p class="status" id="websocket-last-command">No command received yet.</p><p>Avatar Suite only listens on this computer. Connections from other devices are not accepted.</p>
+    </article>
+    <nav class="integration-tabs" role="tablist" aria-label="Automation integrations">
+      <button class="integration-tab active" type="button" role="tab" aria-selected="true" data-integration-tab="sammi">SAMMI</button>
+      <button class="integration-tab" type="button" role="tab" aria-selected="false" data-integration-tab="streamerbot" tabindex="-1">Streamer.bot</button>
+      <button class="integration-tab" type="button" role="tab" aria-selected="false" data-integration-tab="mixitup" tabindex="-1">Mix It Up</button>
+    </nav>
+    <div class="integration-panel" role="tabpanel" data-integration-panel="sammi">
+      <div class="cards">
+        <article class="card"><h3>Connect SAMMI</h3><p>Avatar Suite includes a ready-made SAMMI extension. Once installed, it gives you friendly choices for your presets, layers, groups, and effects.</p><ol class="integration-steps"><li>Start Avatar Suite, SAMMI Core, and SAMMI Bridge 9.02 or newer.</li><li>Open the integration folder below.</li><li>In SAMMI, choose <strong>Bridge → Install an Extension</strong>.</li><li>Select <strong>RearSilver Avatar Suite.sef</strong>.</li><li>Open the RearSilver Avatar Suite tab in Bridge and confirm it reports <strong>Connected and verified</strong>.</li></ol><div class="setting-actions" style="margin-top:16px"><button class="primary" id="open-sammi-integration">Open SAMMI integration folder</button></div><p class="status" id="sammi-integration-result">The folder contains everything you need, along with full setup instructions.</p></article>
+        <article class="card"><h3>What SAMMI can change</h3><p>Activate a preset, show or hide a layer or group, switch configured effects on or off, or combine several changes into one action.</p><p class="status">Your choices refresh automatically when your Avatar Suite setup changes.</p></article>
+      </div>
+    </div>
+    <div class="integration-panel" role="tabpanel" data-integration-panel="streamerbot" hidden>
+      <div class="cards">
+        <article class="card"><h3>Build your avatar action</h3><p>Choose what should happen when Streamer.bot triggers this action. Add several steps if you want multiple changes to happen together.</p><div class="stack" id="websocket-sequence-steps"></div><div class="setting-actions" style="margin-top:14px"><button id="websocket-add-step">+ Add another step</button><button id="websocket-clear-steps">Start over</button></div><p class="status" id="websocket-sequence-status">No action steps yet.</p><div class="setting-actions" style="margin-top:14px"><button class="primary" id="websocket-test">Test action</button></div><p class="status" id="websocket-summary">Add at least one action step.</p><p class="status" id="websocket-result"></p></article>
+        <article class="card"><h3>Add it to Streamer.bot</h3><p>Avatar Suite prepares the code for you, so you do not need to write or edit it yourself. Add an <strong>Execute C# Code</strong> sub-action in Streamer.bot, then copy and paste the code below.</p><label for="streamerbot-client-index">WebSocket client number</label><input id="streamerbot-client-index" type="number" min="0" max="99" step="1" value="0"><p class="status">This is the position of Avatar Suite in Streamer.bot under <strong>Servers/Clients → WebSocket Clients</strong>. The first client is 0.</p><label for="streamerbot-code" style="margin-top:14px">Ready-to-use Streamer.bot code</label><textarea class="integration-code" id="streamerbot-code" readonly spellcheck="false"></textarea><div class="setting-actions" style="margin-top:14px"><button class="primary" id="streamerbot-copy">Copy Streamer.bot code</button></div><p class="status" id="streamerbot-result"></p></article>
+        <article class="card integration-wide"><h3>Advanced: Generated command</h3><p>Avatar Suite automatically includes this in the Streamer.bot code above. You do not need to copy it for the standard setup, but it is available if you prefer to configure your bot directly or need it for troubleshooting.</p><details class="advanced-command"><summary>Show generated command</summary><div class="advanced-command-body"><label for="websocket-json">Generated command</label><textarea id="websocket-json" readonly style="width:100%;min-height:150px;resize:vertical"></textarea><div class="setting-actions" style="margin-top:14px"><button id="websocket-copy">Copy command</button></div><p class="status" id="websocket-copy-result"></p></div></details></article>
+      </div>
+    </div>
+    <div class="integration-panel" role="tabpanel" data-integration-panel="mixitup" hidden>
+      <div class="cards">
+        <article class="card"><h3>Connect Mix It Up</h3><p>Use Mix It Up commands and events to change presets, show or hide parts of your avatar, and switch effects on or off.</p><p style="margin-top:10px">Avatar Suite includes a small companion tool that carries out the action you create below. It opens only when Mix It Up triggers the action and closes as soon as it finishes.</p><p class="status">Avatar Suite must be running when the action is triggered.</p><ol class="integration-steps"><li>Build your avatar action below and select <strong>Test action</strong> to make sure it feels right.</li><li>Select <strong>Open Mix It Up integration folder</strong>.</li><li>In Mix It Up, open the command or event that should trigger the avatar action.</li><li>Add an <strong>External Program Action</strong>.</li><li>Select <strong>RearSilver Avatar Suite Automation.exe</strong> from the integration folder.</li><li>Copy the ready-to-use arguments and paste them into Mix It Up's <strong>Arguments</strong> field.</li><li>Enable <strong>Wait Until Complete</strong>.</li><li>Optionally enable <strong>Save Output</strong> if you want Mix It Up to keep Avatar Suite's response.</li><li>Test the command in Mix It Up.</li></ol><div class="setting-actions" style="margin-top:16px"><button class="primary" id="open-mixitup-integration">Open Mix It Up integration folder</button></div><p class="status" id="mixitup-integration-result">The folder contains everything you need, along with full setup instructions.</p></article>
+        <article class="card"><h3>Add it to Mix It Up</h3><p>These ready-to-use arguments connect your Mix It Up action to the avatar action you build below. You do not need to edit them.</p><label for="mixitup-arguments" style="margin-top:14px">Ready-to-use arguments</label><textarea class="integration-code" id="mixitup-arguments" readonly spellcheck="false" style="min-height:150px"></textarea><div class="setting-actions" style="margin-top:14px"><button class="primary" id="mixitup-copy-arguments">Copy Mix It Up arguments</button></div><p class="status" id="mixitup-result">These update automatically when you change the avatar action below.</p></article>
+        <article class="card integration-wide"><h3>Build your avatar action</h3><p>Choose what should happen when this Mix It Up command or event runs. Add several steps if you want multiple changes to happen together.</p><div class="stack" id="mixitup-sequence-steps"></div><div class="setting-actions" style="margin-top:14px"><button id="mixitup-add-step">+ Add another step</button><button id="mixitup-clear-steps">Start over</button></div><p class="status" id="mixitup-sequence-status">No action steps yet.</p><div class="setting-actions" style="margin-top:14px"><button class="primary" id="mixitup-test">Test action</button></div><p class="status" id="mixitup-summary">Add at least one action step.</p><p class="status" id="mixitup-test-result"></p></article>
+        <article class="card integration-wide"><h3>Advanced: Generated command</h3><p>Avatar Suite automatically turns this into the Mix It Up arguments above. You do not need to copy it for the standard setup, but it is available if you prefer to configure your bot directly or need it for troubleshooting.</p><details class="advanced-command"><summary>Show generated command</summary><div class="advanced-command-body"><label for="mixitup-json">Generated command</label><textarea id="mixitup-json" readonly style="width:100%;min-height:150px;resize:vertical"></textarea><div class="setting-actions" style="margin-top:14px"><button id="mixitup-copy-json">Copy command</button></div><p class="status" id="mixitup-copy-result"></p></div></details></article>
+      </div>
+    </div>
+  </section>
   <section class="panel page" data-page="backgrounds" hidden>
     <h2>Backgrounds</h2>
     <p class="intro">Choose what appears behind the avatar for the selected capture method.</p>
@@ -279,7 +314,7 @@ const pageDetails={
   microphone:['Microphone','Choose the input device and tune when the avatar reacts.'],
   blink:['Blink','Configure automatic blinking for idle and reaction images.'],
   effects:['Effects','Build and order the movement and appearance effects applied to the avatar.'],
-  websocket:['WebSocket','Connect local automation tools and build commands.'],
+  websocket:['Streaming Bot Integration','Connect SAMMI, Streamer.bot, or Mix It Up to control Avatar Suite.'],
   backgrounds:['Backgrounds','Choose what appears behind the avatar for the selected capture method.'],
   output:['Output','Configure how Avatar Suite is captured by OBS.'],
   general:['General','Manage Avatar Suite preferences and Stream Suite companion behaviour.'],
@@ -371,12 +406,31 @@ const websocketSummary=document.getElementById('websocket-summary');
 const websocketResult=document.getElementById('websocket-result');
 const streamerbotClientIndex=document.getElementById('streamerbot-client-index');
 const streamerbotCode=document.getElementById('streamerbot-code');
+const mixitupArguments=document.getElementById('mixitup-arguments');
+const mixitupJson=document.getElementById('mixitup-json');
+const mixitupSummary=document.getElementById('mixitup-summary');
+const mixitupSequenceStepsElement=document.getElementById('mixitup-sequence-steps');
 streamerbotClientIndex.value=localStorage.getItem('streamerbot-client-index')||'0';
+const integrationTabs=[...document.querySelectorAll('[data-integration-tab]')];
+const integrationPanels=[...document.querySelectorAll('[data-integration-panel]')];
+function selectIntegrationTab(name){
+  if(!integrationPanels.some(panel=>panel.dataset.integrationPanel===name))name='sammi';
+  integrationTabs.forEach(tab=>{const active=tab.dataset.integrationTab===name;tab.classList.toggle('active',active);tab.setAttribute('aria-selected',String(active));tab.tabIndex=active?0:-1});
+  integrationPanels.forEach(panel=>panel.hidden=panel.dataset.integrationPanel!==name);
+  try{sessionStorage.setItem('rs-avatar-integration-tab',name)}catch{}
+}
+integrationTabs.forEach((tab,index)=>{tab.onclick=()=>selectIntegrationTab(tab.dataset.integrationTab);tab.onkeydown=event=>{if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight')return;event.preventDefault();const next=(index+(event.key==='ArrowRight'?1:-1)+integrationTabs.length)%integrationTabs.length;selectIntegrationTab(integrationTabs[next].dataset.integrationTab);integrationTabs[next].focus()}});
+try{selectIntegrationTab(sessionStorage.getItem('rs-avatar-integration-tab')||'sammi')}catch{selectIntegrationTab('sammi')}
 function updateStreamerbotCode(){
   const index=Math.max(0,Math.min(99,Number(streamerbotClientIndex.value)||0));
   let command;try{command=JSON.stringify(JSON.parse(websocketJson.value))}catch{command=JSON.stringify({action:'sequence.run',steps:[]})}
   const message=command.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
   streamerbotCode.value=`using System;\n\npublic class CPHInline\n{\n    public bool Execute()\n    {\n        CPH.WebsocketSend("${message}", ${index});\n        return true;\n    }\n}`;
+}
+function updateMixItUpArguments(){
+  let command;try{command=JSON.stringify(JSON.parse(mixitupJson.value))}catch{command=JSON.stringify({action:'sequence.run',steps:[]})}
+  const bytes=new TextEncoder().encode(command);let binary='';for(let index=0;index<bytes.length;index+=8192)binary+=String.fromCharCode(...bytes.subarray(index,index+8192));
+  mixitupArguments.value=`--base64 ${btoa(binary)}`;
 }
 function updateWebSocketAction(){
   if(automationSteps.length){updateSequenceCommand();return}
@@ -386,10 +440,12 @@ function updateWebSocketAction(){
 }
 function updateWebSocketPresetChoices(){
   renderAutomationSteps();
+  renderMixItUpAutomationSteps();
 }
 streamerbotClientIndex.oninput=()=>{localStorage.setItem('streamerbot-client-index',String(Math.max(0,Math.min(99,Number(streamerbotClientIndex.value)||0))));updateStreamerbotCode()};
 const sequenceStepsElement=document.getElementById('websocket-sequence-steps');
 const automationSteps=[];
+const mixitupAutomationSteps=[];
 function availableAutomationTargets(type){
   if(type==='preset.activate')return pendingPresets.map(preset=>({value:preset.id,label:preset.name}));
   if(type==='effect.enabled'){
@@ -404,26 +460,43 @@ function updateSequenceCommand(){
   if(!automationSteps.length){updateWebSocketAction();return}
   const steps=automationSteps.map(step=>{if(step.type==='preset.activate')return{action:step.type,presetId:step.targetId};const command={action:step.type,targetId:step.targetId,enabled:step.enabled};if(step.type==='effect.enabled')command.effectId=step.effectId;return command});
   websocketJson.value=JSON.stringify({action:'sequence.run',steps},null,2);
-  websocketSummary.textContent=`Run ${steps.length} action step${steps.length===1?'':'s'} in order.`;
-  document.getElementById('websocket-sequence-status').textContent=`${steps.length} step${steps.length===1?'':'s'} configured. The preset itself is not edited.`;
+  websocketSummary.textContent=`Ready to run ${steps.length} step${steps.length===1?'':'s'} in order.`;
+  document.getElementById('websocket-sequence-status').textContent=`${steps.length} step${steps.length===1?'':'s'} ready. Your saved preset is not changed.`;
   updateStreamerbotCode();
 }
-function renderAutomationSteps(){
-  sequenceStepsElement.replaceChildren();
-  automationSteps.forEach((step,index)=>{
+function renderSequenceSteps(steps,element,statusElement,updateCommand,rerender){
+  element.replaceChildren();
+  steps.forEach((step,index)=>{
     const card=document.createElement('div');card.className='card automation-step';card.style.padding='12px';
     const grid=document.createElement('div');grid.className='control-grid';
-    const typeWrap=document.createElement('div');const typeLabel=document.createElement('label');typeLabel.textContent=`Step ${index+1}`;const type=document.createElement('select');[['preset.activate','Activate preset'],['layer.visibility','Layer visibility'],['group.visibility','Group visibility'],['effect.enabled','Configured effect']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;type.append(option)});type.value=step.type;type.onchange=()=>{step.type=type.value;const first=availableAutomationTargets(step.type)[0];step.targetId=first?(step.type==='effect.enabled'?first.value.split('|')[0]:first.value):'';step.effectId=first&&step.type==='effect.enabled'?first.value.split('|')[1]:'';renderAutomationSteps()};typeWrap.append(typeLabel,type);
-    const targetWrap=document.createElement('div');const targetLabel=document.createElement('label');targetLabel.textContent=step.type==='preset.activate'?'Preset':'Target';const target=document.createElement('select');availableAutomationTargets(step.type).forEach(item=>{const option=document.createElement('option');option.value=item.value;option.textContent=item.label;target.append(option)});target.value=step.type==='effect.enabled'?`${step.targetId}|${step.effectId}`:step.targetId;target.onchange=()=>{const values=target.value.split('|');step.targetId=values[0];step.effectId=values[1]||'';updateSequenceCommand()};targetWrap.append(targetLabel,target);
-    grid.append(typeWrap,targetWrap);if(step.type!=='preset.activate'){const stateWrap=document.createElement('div');const stateLabel=document.createElement('label');stateLabel.textContent=step.type==='effect.enabled'?'Effect state':'Visibility';const state=document.createElement('select');[[true,step.type==='effect.enabled'?'Enable':'Show'],[false,step.type==='effect.enabled'?'Disable':'Hide']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value?'1':'0';option.textContent=label;state.append(option)});state.value=step.enabled?'1':'0';state.onchange=()=>{step.enabled=state.value==='1';updateSequenceCommand()};stateWrap.append(stateLabel,state);grid.append(stateWrap)}
-    const actions=document.createElement('div');actions.className='setting-actions';actions.style.marginTop='10px';[['▲',()=>{if(index){[automationSteps[index-1],automationSteps[index]]=[automationSteps[index],automationSteps[index-1]];renderAutomationSteps()}}],['▼',()=>{if(index<automationSteps.length-1){[automationSteps[index+1],automationSteps[index]]=[automationSteps[index],automationSteps[index+1]];renderAutomationSteps()}}],['Remove',()=>{automationSteps.splice(index,1);renderAutomationSteps()}]].forEach(([label,run])=>{const button=document.createElement('button');button.textContent=label;button.onclick=run;actions.append(button)});card.append(grid,actions);sequenceStepsElement.append(card);
+    const typeWrap=document.createElement('div');const typeLabel=document.createElement('label');typeLabel.textContent=`Step ${index+1}`;const type=document.createElement('select');[['preset.activate','Activate preset'],['layer.visibility','Layer visibility'],['group.visibility','Group visibility'],['effect.enabled','Configured effect']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value;option.textContent=label;type.append(option)});type.value=step.type;type.onchange=()=>{step.type=type.value;const first=availableAutomationTargets(step.type)[0];step.targetId=first?(step.type==='effect.enabled'?first.value.split('|')[0]:first.value):'';step.effectId=first&&step.type==='effect.enabled'?first.value.split('|')[1]:'';rerender()};typeWrap.append(typeLabel,type);
+    const targetWrap=document.createElement('div');const targetLabel=document.createElement('label');targetLabel.textContent=step.type==='preset.activate'?'Preset':'Target';const target=document.createElement('select');availableAutomationTargets(step.type).forEach(item=>{const option=document.createElement('option');option.value=item.value;option.textContent=item.label;target.append(option)});target.value=step.type==='effect.enabled'?`${step.targetId}|${step.effectId}`:step.targetId;target.onchange=()=>{const values=target.value.split('|');step.targetId=values[0];step.effectId=values[1]||'';updateCommand()};targetWrap.append(targetLabel,target);
+    grid.append(typeWrap,targetWrap);if(step.type!=='preset.activate'){const stateWrap=document.createElement('div');const stateLabel=document.createElement('label');stateLabel.textContent=step.type==='effect.enabled'?'Effect state':'Visibility';const state=document.createElement('select');[[true,step.type==='effect.enabled'?'Enable':'Show'],[false,step.type==='effect.enabled'?'Disable':'Hide']].forEach(([value,label])=>{const option=document.createElement('option');option.value=value?'1':'0';option.textContent=label;state.append(option)});state.value=step.enabled?'1':'0';state.onchange=()=>{step.enabled=state.value==='1';updateCommand()};stateWrap.append(stateLabel,state);grid.append(stateWrap)}
+    const actions=document.createElement('div');actions.className='setting-actions';actions.style.marginTop='10px';[['▲',()=>{if(index){[steps[index-1],steps[index]]=[steps[index],steps[index-1]];rerender()}}],['▼',()=>{if(index<steps.length-1){[steps[index+1],steps[index]]=[steps[index],steps[index+1]];rerender()}}],['Remove',()=>{steps.splice(index,1);rerender()}]].forEach(([label,run])=>{const button=document.createElement('button');button.textContent=label;button.onclick=run;actions.append(button)});card.append(grid,actions);element.append(card);
   });
-  if(automationSteps.length)updateSequenceCommand();else{document.getElementById('websocket-sequence-status').textContent='No sequence steps configured.';updateWebSocketAction()}
+  if(steps.length)updateCommand();else{statusElement.textContent='No action steps yet.';updateCommand()}
 }
+function renderAutomationSteps(){renderSequenceSteps(automationSteps,sequenceStepsElement,document.getElementById('websocket-sequence-status'),updateSequenceCommand,renderAutomationSteps)}
+function updateMixItUpAction(){
+  if(mixitupAutomationSteps.length){updateMixItUpSequenceCommand();return}
+  mixitupJson.value=JSON.stringify({action:'sequence.run',steps:[]},null,2);
+  mixitupSummary.textContent='Add at least one action step.';
+  updateMixItUpArguments();
+}
+function updateMixItUpSequenceCommand(){
+  if(!mixitupAutomationSteps.length){updateMixItUpAction();return}
+  const steps=mixitupAutomationSteps.map(step=>{if(step.type==='preset.activate')return{action:step.type,presetId:step.targetId};const command={action:step.type,targetId:step.targetId,enabled:step.enabled};if(step.type==='effect.enabled')command.effectId=step.effectId;return command});
+  mixitupJson.value=JSON.stringify({action:'sequence.run',steps},null,2);
+  mixitupSummary.textContent=`Ready to run ${steps.length} step${steps.length===1?'':'s'} in order.`;
+  document.getElementById('mixitup-sequence-status').textContent=`${steps.length} step${steps.length===1?'':'s'} ready. Your saved preset is not changed.`;
+  updateMixItUpArguments();
+}
+function renderMixItUpAutomationSteps(){renderSequenceSteps(mixitupAutomationSteps,mixitupSequenceStepsElement,document.getElementById('mixitup-sequence-status'),updateMixItUpSequenceCommand,renderMixItUpAutomationSteps)}
 document.getElementById('websocket-add-step').onclick=()=>{const target=availableAutomationTargets('layer.visibility')[0];automationSteps.push({type:'layer.visibility',targetId:target?target.value:'',effectId:'',enabled:true});renderAutomationSteps()};
 document.getElementById('websocket-clear-steps').onclick=()=>{automationSteps.splice(0);renderAutomationSteps()};
+document.getElementById('mixitup-add-step').onclick=()=>{const target=availableAutomationTargets('layer.visibility')[0];mixitupAutomationSteps.push({type:'layer.visibility',targetId:target?target.value:'',effectId:'',enabled:true});renderMixItUpAutomationSteps()};
+document.getElementById('mixitup-clear-steps').onclick=()=>{mixitupAutomationSteps.splice(0);renderMixItUpAutomationSteps()};
 function runWebSocketCommand(command){
-  websocketResult.textContent='Connecting…';
   return new Promise((resolve,reject)=>{
     const socket=new WebSocket('ws://127.0.0.1:17891');
     const timeout=setTimeout(()=>{socket.close();reject(new Error('Connection timed out'))},3000);
@@ -434,9 +507,14 @@ function runWebSocketCommand(command){
 }
 function checkWebSocketServer(){window.chrome.webview.postMessage('websocket-state-request')}
 setInterval(()=>{const page=document.querySelector('.page[data-page="websocket"]');if(page&&!page.hidden)checkWebSocketServer()},1000);
-document.getElementById('websocket-test').onclick=async()=>{try{const reply=JSON.parse(await runWebSocketCommand(websocketJson.value));websocketResult.textContent=reply.ok?'Action completed successfully.':reply.error||'Action failed.'}catch(error){websocketResult.textContent=error.message}};
-document.getElementById('websocket-copy').onclick=async()=>{try{await navigator.clipboard.writeText(websocketJson.value);websocketResult.textContent='JSON copied to the clipboard.'}catch{websocketJson.select();document.execCommand('copy');websocketResult.textContent='JSON copied to the clipboard.'}};
+document.getElementById('websocket-test').onclick=async()=>{websocketResult.textContent='Connecting…';try{const reply=JSON.parse(await runWebSocketCommand(websocketJson.value));websocketResult.textContent=reply.ok?'Action completed successfully.':reply.error||'Action failed.'}catch(error){websocketResult.textContent=error.message}};
+document.getElementById('websocket-copy').onclick=async()=>{const result=document.getElementById('websocket-copy-result');try{await navigator.clipboard.writeText(websocketJson.value);result.textContent='Command copied to the clipboard.'}catch{websocketJson.select();document.execCommand('copy');result.textContent='Command copied to the clipboard.'}};
+document.getElementById('mixitup-test').onclick=async()=>{const result=document.getElementById('mixitup-test-result');result.textContent='Connecting…';try{const reply=JSON.parse(await runWebSocketCommand(mixitupJson.value));result.textContent=reply.ok?'Action completed successfully.':reply.error||'Action failed.'}catch(error){result.textContent=error.message}};
+document.getElementById('mixitup-copy-json').onclick=async()=>{const result=document.getElementById('mixitup-copy-result');try{await navigator.clipboard.writeText(mixitupJson.value);result.textContent='Command copied to the clipboard.'}catch{mixitupJson.select();document.execCommand('copy');result.textContent='Command copied to the clipboard.'}};
 document.getElementById('streamerbot-copy').onclick=async()=>{const result=document.getElementById('streamerbot-result');try{await navigator.clipboard.writeText(streamerbotCode.value);result.textContent='Streamer.bot C# code copied to the clipboard.'}catch{streamerbotCode.select();document.execCommand('copy');result.textContent='Streamer.bot C# code copied to the clipboard.'}};
+document.getElementById('mixitup-copy-arguments').onclick=async()=>{const result=document.getElementById('mixitup-result');try{await navigator.clipboard.writeText(mixitupArguments.value);result.textContent='Mix It Up arguments copied to the clipboard.'}catch{mixitupArguments.select();document.execCommand('copy');result.textContent='Mix It Up arguments copied to the clipboard.'}};
+document.getElementById('open-sammi-integration').onclick=()=>{document.getElementById('sammi-integration-result').textContent='Opening the installed SAMMI integration folder…';window.chrome.webview.postMessage('open-sammi-integration')};
+document.getElementById('open-mixitup-integration').onclick=()=>{document.getElementById('mixitup-integration-result').textContent='Opening the installed Mix It Up integration folder…';window.chrome.webview.postMessage('open-mixitup-integration')};
 document.getElementById('new-preset').onclick=()=>openPresetNameModal('create');
 document.getElementById('import-preset').onclick=()=>requestPresetSwitch(['import']);
 document.getElementById('close-preset-modal').onclick=closePresetNameModal;
@@ -1279,6 +1357,10 @@ document.getElementById('install-update').onclick=()=>window.chrome.webview.post
     diagnosticStatus.textContent=value==='1'?'Report saved successfully.':'Export cancelled or the report could not be saved.';
   }else if(type==='navigate-page'){
     showPage(value);
+  }else if(type==='sammi-folder-result'){
+    document.getElementById('sammi-integration-result').textContent=value==='1'?'SAMMI integration folder opened.':'The SAMMI integration files are missing from this installation. Repair or update Avatar Suite.';
+  }else if(type==='mixitup-folder-result'){
+    document.getElementById('mixitup-integration-result').textContent=value==='1'?'Mix It Up integration folder opened.':'The Mix It Up integration helper is missing from this installation. Repair or update Avatar Suite.';
   }else if(type==='websocket-state'){
     const listening=fields[1]==='1';const clients=Number(fields[2]||0);const messages=Number(fields[3]||0);const last=fields[4]||'';
     document.getElementById('websocket-client-count').textContent=String(clients);

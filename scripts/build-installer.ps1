@@ -82,6 +82,19 @@ foreach ($runtimeFile in $runtimeFiles) {
         throw "Required staged runtime file is missing. Run the '$presetName' configure and build presets first: $source"
     }
 }
+$integrationFiles = @(
+    'integrations\sammi\RearSilver Avatar Suite.sef',
+    'integrations\sammi\RearSilver Avatar Suite - Icon 128.png',
+    'integrations\sammi\README.md',
+    'integrations\mixitup\RearSilver Avatar Suite Automation.exe',
+    'integrations\mixitup\README.md'
+)
+foreach ($integrationFile in $integrationFiles) {
+    $source = Join-Path $appRoot $integrationFile
+    if (-not (Test-Path -LiteralPath $source -PathType Leaf)) {
+        throw "Required integration file is missing from the clean build: $source"
+    }
+}
 $builtInSource = Join-Path $appRoot 'built-in-layers'
 $expectedBuiltInCount = (Get-ChildItem -LiteralPath (Join-Path $sourceDir 'assets\Built In Layers') -Filter '*.png' -File).Count
 if (-not (Test-Path -LiteralPath $builtInSource -PathType Container)) {
@@ -92,7 +105,7 @@ if ($builtInFiles.Count -ne $expectedBuiltInCount -or $builtInFiles.Count -eq 0)
     throw "Built-in layer payload is incomplete. Expected $expectedBuiltInCount PNG files, found $($builtInFiles.Count)."
 }
 $stagedFiles = Get-ChildItem -LiteralPath $appRoot -File -Recurse
-if ($stagedFiles.Count -ne ($runtimeFiles.Count + $expectedBuiltInCount)) {
+if ($stagedFiles.Count -ne ($runtimeFiles.Count + $integrationFiles.Count + $expectedBuiltInCount)) {
     throw "Staged payload contains an unexpected number of files: $($stagedFiles.Count)."
 }
 

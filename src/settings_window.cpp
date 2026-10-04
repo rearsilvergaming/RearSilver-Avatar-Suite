@@ -445,6 +445,32 @@ void initialiseWebView()
                                                 ShellExecuteW(g_settingsWindow, L"open",
                                                     L"https://github.com/Off-World-Live/obs-spout2-plugin/releases",
                                                     nullptr, nullptr, SW_SHOWNORMAL);
+                                            else if (wcscmp(message, L"open-sammi-integration") == 0) {
+                                                wchar_t executablePath[32768]{};
+                                                const DWORD length = GetModuleFileNameW(nullptr, executablePath, ARRAYSIZE(executablePath));
+                                                const std::filesystem::path folder = length > 0 && length < ARRAYSIZE(executablePath)
+                                                    ? std::filesystem::path(executablePath).parent_path() / L"integrations" / L"sammi"
+                                                    : std::filesystem::path();
+                                                const bool available = !folder.empty() && std::filesystem::is_directory(folder);
+                                                if (available)
+                                                    ShellExecuteW(g_settingsWindow, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                                                if (g_webView)
+                                                    g_webView->PostWebMessageAsString(available ? L"sammi-folder-result\t1"
+                                                                                               : L"sammi-folder-result\t0");
+                                            }
+                                            else if (wcscmp(message, L"open-mixitup-integration") == 0) {
+                                                wchar_t executablePath[32768]{};
+                                                const DWORD length = GetModuleFileNameW(nullptr, executablePath, ARRAYSIZE(executablePath));
+                                                const std::filesystem::path folder = length > 0 && length < ARRAYSIZE(executablePath)
+                                                    ? std::filesystem::path(executablePath).parent_path() / L"integrations" / L"mixitup"
+                                                    : std::filesystem::path();
+                                                const bool available = !folder.empty() && std::filesystem::is_directory(folder);
+                                                if (available)
+                                                    ShellExecuteW(g_settingsWindow, L"open", folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                                                if (g_webView)
+                                                    g_webView->PostWebMessageAsString(available ? L"mixitup-folder-result\t1"
+                                                                                               : L"mixitup-folder-result\t0");
+                                            }
                                             else if (wcscmp(message, L"open-logs-folder") == 0) {
                                                 wchar_t localAppData[32768]{};
                                                 if (GetEnvironmentVariableW(L"LOCALAPPDATA", localAppData, ARRAYSIZE(localAppData))) {

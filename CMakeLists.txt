@@ -53,6 +53,12 @@ if(MSVC)
   target_compile_options(RearSilverSpout2 PRIVATE /EHsc)
 endif()
 add_executable(RearSilverAvatarSuite WIN32 src/main.cpp src/settings_window.cpp src/update_service.cpp src/update_version.cpp src/update_download.cpp src/audio_monitor.cpp src/preset_store.cpp src/layer_model.cpp src/websocket_server.cpp src/app.rc "${CMAKE_CURRENT_BINARY_DIR}/generated/version.rc")
+add_executable(RearSilverAvatarAutomation src/automation_sender.cpp)
+set_target_properties(RearSilverAvatarAutomation PROPERTIES OUTPUT_NAME "RearSilver Avatar Suite Automation")
+target_compile_features(RearSilverAvatarAutomation PRIVATE cxx_std_17)
+target_compile_definitions(RearSilverAvatarAutomation PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(RearSilverAvatarAutomation PRIVATE winhttp crypt32)
+add_dependencies(RearSilverAvatarSuite RearSilverAvatarAutomation)
 add_executable(RearSilverAvatarUpdater WIN32 src/updater/updater_main.cpp)
 set_target_properties(RearSilverAvatarUpdater PROPERTIES OUTPUT_NAME "RearSilver-Avatar-Suite-Updater")
 target_compile_features(RearSilverAvatarUpdater PRIVATE cxx_std_17)
@@ -64,6 +70,7 @@ configure_file("${CMAKE_CURRENT_SOURCE_DIR}/assets/avatar-settings.html"
   "${CMAKE_CURRENT_BINARY_DIR}/avatar-settings.html" COPYONLY)
 target_compile_features(RearSilverAvatarSuite PRIVATE cxx_std_17)
 if(MSVC)
+  target_compile_options(RearSilverAvatarAutomation PRIVATE /utf-8 /EHsc)
   target_compile_options(RearSilverAvatarUpdater PRIVATE /utf-8 /EHsc)
   target_compile_options(RearSilverAvatarSuite PRIVATE /utf-8 /EHsc)
 endif()
@@ -144,11 +151,26 @@ add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different
     "${CMAKE_CURRENT_SOURCE_DIR}/assets/Branding/Rail Icons_RearSilver Avatar Suite - Rail - Settings.png"
     "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/rail-settings.png"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/integrations/sammi"
+  COMMAND "${CMAKE_COMMAND}" -E make_directory
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/integrations/mixitup"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "${CMAKE_CURRENT_SOURCE_DIR}/integrations/sammi/RearSilver Avatar Suite.sef"
+    "${CMAKE_CURRENT_SOURCE_DIR}/integrations/sammi/RearSilver Avatar Suite - Icon 128.png"
+    "${CMAKE_CURRENT_SOURCE_DIR}/integrations/sammi/README.md"
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/integrations/sammi"
+  COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+    "$<TARGET_FILE:RearSilverAvatarAutomation>"
+    "${CMAKE_CURRENT_SOURCE_DIR}/integrations/mixitup/README.md"
+    "$<TARGET_FILE_DIR:RearSilverAvatarSuite>/integrations/mixitup"
   COMMAND_EXPAND_LISTS)
 if(RS_ARTIFACT_DIR)
   add_custom_command(TARGET RearSilverAvatarSuite POST_BUILD
     COMMAND "${CMAKE_COMMAND}" -E remove_directory "${RS_ARTIFACT_DIR}/app"
     COMMAND "${CMAKE_COMMAND}" -E make_directory "${RS_ARTIFACT_DIR}/app/built-in-layers"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${RS_ARTIFACT_DIR}/app/integrations/sammi"
+    COMMAND "${CMAKE_COMMAND}" -E make_directory "${RS_ARTIFACT_DIR}/app/integrations/mixitup"
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
       "$<TARGET_FILE:RearSilverAvatarSuite>"
       "${RS_ARTIFACT_DIR}/app/RearSilver Avatar Suite.exe"
@@ -174,6 +196,15 @@ if(RS_ARTIFACT_DIR)
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
       ${BUILT_IN_LAYER_PNGS}
       "${RS_ARTIFACT_DIR}/app/built-in-layers"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "${CMAKE_CURRENT_SOURCE_DIR}/integrations/sammi/RearSilver Avatar Suite.sef"
+      "${CMAKE_CURRENT_SOURCE_DIR}/integrations/sammi/RearSilver Avatar Suite - Icon 128.png"
+      "${CMAKE_CURRENT_SOURCE_DIR}/integrations/sammi/README.md"
+      "${RS_ARTIFACT_DIR}/app/integrations/sammi"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+      "$<TARGET_FILE:RearSilverAvatarAutomation>"
+      "${CMAKE_CURRENT_SOURCE_DIR}/integrations/mixitup/README.md"
+      "${RS_ARTIFACT_DIR}/app/integrations/mixitup"
     COMMAND_EXPAND_LISTS)
 endif()
 
